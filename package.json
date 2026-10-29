@@ -1,0 +1,16 @@
+{
+  "name": "monopoly-trrj",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Monopoly de Tarroja de Segarra: PWA per jugar amb diners ficticis des del mòbil",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

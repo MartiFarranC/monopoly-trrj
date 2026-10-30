@@ -225,8 +225,9 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 .midrow .sort{white-space:nowrap}
 @media (max-width:380px){.midrow .sort{padding:0 9px;font-size:12px;gap:5px}}
-#hand{transform-origin:calc(50% + 16px) 100%;transition:transform .35s cubic-bezier(.3,1.25,.5,1)}
-#hand.paying{transform:translate(14px,-30px) scale(1.16)}
+#hand{transition:transform .35s cubic-bezier(.3,1.25,.5,1)}
+/* quan has de pagar, els bitllets pugen i se'n veu molt més que la punta */
+#hand.paying{transform:translateY(-78px)}
 #hand.paying .hb .lab{font-size:12px;height:21px}
 
 /* ---------- estil Monopoly clàssic, en versió d'app ----------

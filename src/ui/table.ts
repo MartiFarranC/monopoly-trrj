@@ -26,7 +26,9 @@ const HR = 375;
 /** Pivot sota la pantalla: només en sobresurt la punta dels bitllets (uns 80px). */
 const PIVOT_DEPTH = 450;
 /** Obertura màxima entre dos bitllets, perquè amb pocs bitllets no quedin massa separats. */
-const MAX_STEP = 6;
+/** Bitllets que es veuen de cada grup quan està tancat, i quants graus se separen. */
+const PILE = 3;
+const PILE_STEP = 2.5;
 const DY_CARD = 26;
 /** On comencen les cartes: sota els botons de dalt i la franja del tauler. */
 const TOP = 136 + 66;
@@ -383,26 +385,24 @@ export class TableScreen implements Screen {
     const P = this.pivot();
     const keep = new Set<string>();
     const anyOpen = this.open !== null;
-    // Prou espai entre grups perquè l'etiqueta del valor no tapi la del grup del costat.
-    const GAP = 4.8;
-    const counts = VALS.map((v) => Math.max(this.handCount(v), 1));
-    const units = counts.reduce((a, n) => a + n, 0) - 1 + GAP * (VALS.length - 1);
+    // Cada valor té el mateix espai al ventall, i de cada grup només se'n veuen uns quants
+    // bitllets lleugerament desplaçats, perquè no es tapin entre ells. Tocant un grup s'obre sencer.
+    const counts = VALS.map((v) => Math.max(this.open === v ? this.handCount(v) : Math.min(this.handCount(v), PILE), 1));
     const paying = !!this.pay;
     // El ventall ocupa tota l'amplada de baix: l'angle total es calcula perquè les puntes arribin a les vores.
     const reach = Math.max(40, this.W / 2 - HW / 2 - 10);
     const span = (2 * Math.asin(Math.min(1, reach / (HR + HH))) * 180) / Math.PI;
-    const step = Math.min(MAX_STEP, span / Math.max(units, 1));
-    let a0 = (-step * units) / 2;
+    // Els grups de les puntes no arriben fins a la vora, perquè no quedin tallats.
+    const spread = span * 0.84;
+    const slot = spread / (VALS.length - 1);
+    const inner = Math.min(PILE_STEP, slot / (PILE + 1));
     let z = 0;
-    this.GA = [];
+    this.GA = VALS.map((_, g) => -spread / 2 + slot * g);
     const hand = this.$('#hand');
-    hand.classList.toggle('paying', paying);
-    this.$('#wallet').hidden = paying;
     VALS.forEach((v, g) => {
       const n = this.handCount(v);
       const open = this.open === v;
       const c = counts[g]!;
-      this.GA[g] = a0 + (step * (c - 1)) / 2;
       for (let k = 0; k < c; k++) {
         const key = v + ':' + k;
         keep.add(key);
@@ -423,7 +423,7 @@ export class TableScreen implements Screen {
           a = this.GA[g]! * 0.5 + (k - (n - 1) / 2) * st;
           lift = -95;
         } else {
-          a = a0 + k * step;
+          a = this.GA[g]! + (k - (c - 1) / 2) * inner;
           lift = anyOpen ? 36 : 0;
         }
         Object.assign(el.style, {
@@ -444,7 +444,6 @@ export class TableScreen implements Screen {
         lab.hidden = k !== mid;
         lab.innerHTML = `<b>${v}<small>€</small></b><i>×${Math.max(n, 0)}</i>`;
       }
-      a0 += step * (c - 1 + GAP);
     });
     Object.keys(this.handEls).forEach((k) => {
       if (!keep.has(k)) {

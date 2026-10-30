@@ -97,7 +97,7 @@ describe('sol·licitar paga', () => {
     const req = s.paymentRequests[0]!;
     expect(req.amount).toBe(4); // grup complet sense cases: lloguer doble
     expect(() => applyAction(s, 'anna', { type: 'pay-request', requestId: req.id, bills: { 1: 4 } })).toThrow(/no és per a tu/);
-    expect(() => applyAction(s, 'pere', { type: 'pay-request', requestId: req.id, bills: { 5: 1 } })).toThrow(/just/);
+    expect(() => applyAction(s, 'pere', { type: 'pay-request', requestId: req.id, bills: { 1: 3 } })).toThrow(/Falten/);
     s = applyAction(s, 'pere', { type: 'pay-request', requestId: req.id, bills: { 1: 4 } });
     expect(balanceOf(s, 'pere')).toBe(1496);
     expect(balanceOf(s, 'marti')).toBe(1500 - 120 + 4);
@@ -135,7 +135,7 @@ describe('subhastes', () => {
   });
 });
 
-describe('pagar només just', () => {
+describe('pagar', () => {
   it('cobra 200 en passar per la Sortida i paga impostos a la banca', () => {
     const s = run(startedGame(), [
       ['anna', { type: 'pass-go' }],
@@ -145,10 +145,35 @@ describe('pagar només just', () => {
     expect(s.transactions).toHaveLength(2);
   });
 
-  it('no deixa pagar de més ni esperar canvi', () => {
+  it('qui cobra torna el canvi amb els seus bitllets', () => {
+    const s = applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 230, reason: 'x', bills: { 100: 2, 50: 1 } });
+    expect(balanceOf(s, 'anna')).toBe(1270);
+    expect(balanceOf(s, 'pere')).toBe(1730);
+    const t = s.transactions.at(-1)!;
+    expect(t.returned).toMatchObject({ 20: 1 });
+    expect(t.received).toMatchObject({ 100: 2, 50: 1 });
+    expect(s.wallets.anna![20]).toBe(7);
+    expect(s.wallets.pere![20]).toBe(5);
+  });
+
+  it('si qui cobra no té canvi, la banca el fa', () => {
+    let s = applyAction(startedGame(), 'pere', { type: 'exchange-bills', give: { 1: 5 }, receive: { 5: 1 } });
+    const before = moneyInGame(s);
+    s = applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 4, reason: 'x', bills: { 5: 1 } });
+    expect(balanceOf(s, 'anna')).toBe(1496);
+    expect(balanceOf(s, 'pere')).toBe(1504);
+    expect(s.wallets.pere![1]).toBe(4);
+    expect(s.transactions.at(-1)!.returned).toMatchObject({ 1: 1 });
+    expect(moneyInGame(s)).toBe(before);
+  });
+
+  it('no deixa posar bitllets que sobren ni pagar de menys', () => {
     expect(() =>
-      applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 230, reason: 'x', bills: { 100: 2, 50: 1 } }),
-    ).toThrow(/just/);
+      applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 230, reason: 'x', bills: { 100: 2, 50: 1, 20: 1 } }),
+    ).toThrow(/sobra/);
+    expect(() =>
+      applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 230, reason: 'x', bills: { 100: 2 } }),
+    ).toThrow(/Falten 30/);
   });
 
   it('no es pot pagar amb bitllets que no tens', () => {

@@ -26,7 +26,9 @@ const HR = 375;
 /** Pivot sota la pantalla: només en sobresurt la punta dels bitllets (uns 80px). */
 const PIVOT_DEPTH = 450;
 /** Obertura màxima entre dos bitllets, perquè amb pocs bitllets no quedin massa separats. */
-const MAX_STEP = 6;
+/** Bitllets que es veuen de cada grup quan està tancat, i quants graus se separen. */
+const PILE = 3;
+const PILE_STEP = 2.5;
 const DY_CARD = 26;
 /** On comencen les cartes: sota els botons de dalt i la franja del tauler. */
 const TOP = 136 + 66;
@@ -126,6 +128,9 @@ export class TableScreen implements Screen {
   private pcEls: Record<string, HTMLDivElement> = {};
   private GA: number[] = [];
   private drag: any = null;
+  /** Bitllet que s'arrossega des del ventall cap a qui cobra. */
+  private handDrag: { v: V; sx: number; sy: number; el: HTMLElement | null } | null = null;
+  private dragged = false;
   private toastT = 0;
   private board: BoardStrip;
   /** L'últim moviment que ja ha arribat a la casella en aquest mòbil. */
@@ -263,12 +268,21 @@ export class TableScreen implements Screen {
     if (incoming.length) this.saveSeen();
     const paidToMe = incoming.filter((t) => t.to === this.me && t.amount > 0 && t.from !== this.me);
     const bills: V[] = [];
-    paidToMe.forEach((t) => VALS.forEach((v) => bills.push(...Array<V>(t.bills[v]).fill(v))));
-    if (bills.length) {
-      this.throwBills(bills);
+    paidToMe.forEach((t) => VALS.forEach((v) => bills.push(...Array<V>((t.received ?? t.bills)[v]).fill(v))));
+    // El canvi que et tornen quan has pagat de més.
+    const changeToMe = incoming.filter((t) => t.from === this.me && t.amount > 0 && t.returned);
+    changeToMe.forEach((t) => VALS.forEach((v) => bills.push(...Array<V>(t.returned![v]).fill(v))));
+    if (bills.length) this.throwBills(bills);
+    if (paidToMe.length) {
       const t = paidToMe[paidToMe.length - 1]!;
       const from = t.from === BANK ? 'La banca' : userById(t.from).name;
-      this.toast('pay', `${from} t'ha pagat ${fmt(paidToMe.reduce((n, x) => n + x.amount, 0))}€`, `${esc(t.reason)}. Arrossega els bitllets al ventall.`, 5000);
+      // Si has tornat canvi de la teva cartera, t'han arribat els bitllets que ha donat (no els de la banca).
+      const gaveBack = t.returned && t.received && VALS.every((v) => t.received![v] === t.bills[v]) ? walletTotal(t.returned) : 0;
+      const sub = gaveBack ? `Li has tornat ${fmt(gaveBack)}€ de canvi.` : 'Arrossega els bitllets al ventall.';
+      this.toast('pay', `${from} t'ha pagat ${fmt(paidToMe.reduce((n, x) => n + x.amount, 0))}€`, `${esc(t.reason)}. ${sub}`, 5000);
+    } else if (changeToMe.length) {
+      const t = changeToMe[changeToMe.length - 1]!;
+      this.toast('pay', `T'han tornat ${fmt(walletTotal(t.returned!))}€ de canvi`, 'Arrossega els bitllets al ventall.', 4000);
     }
 
     // Respostes del màster a les teves peticions.
@@ -371,25 +385,24 @@ export class TableScreen implements Screen {
     const P = this.pivot();
     const keep = new Set<string>();
     const anyOpen = this.open !== null;
-    const GAP = 3.4;
-    const counts = VALS.map((v) => Math.max(this.handCount(v), 1));
-    const units = counts.reduce((a, n) => a + n, 0) - 1 + GAP * (VALS.length - 1);
+    // Cada valor té el mateix espai al ventall, i de cada grup només se'n veuen uns quants
+    // bitllets lleugerament desplaçats, perquè no es tapin entre ells. Tocant un grup s'obre sencer.
+    const counts = VALS.map((v) => Math.max(this.open === v ? this.handCount(v) : Math.min(this.handCount(v), PILE), 1));
     const paying = !!this.pay;
     // El ventall ocupa tota l'amplada de baix: l'angle total es calcula perquè les puntes arribin a les vores.
     const reach = Math.max(40, this.W / 2 - HW / 2 - 10);
     const span = (2 * Math.asin(Math.min(1, reach / (HR + HH))) * 180) / Math.PI;
-    const step = Math.min(MAX_STEP, span / Math.max(units, 1));
-    let a0 = (-step * units) / 2;
+    // Els grups de les puntes no arriben fins a la vora, perquè no quedin tallats.
+    const spread = span * 0.84;
+    const slot = spread / (VALS.length - 1);
+    const inner = Math.min(PILE_STEP, slot / (PILE + 1));
     let z = 0;
-    this.GA = [];
+    this.GA = VALS.map((_, g) => -spread / 2 + slot * g);
     const hand = this.$('#hand');
-    hand.classList.toggle('paying', paying);
-    this.$('#wallet').hidden = paying;
     VALS.forEach((v, g) => {
       const n = this.handCount(v);
       const open = this.open === v;
       const c = counts[g]!;
-      this.GA[g] = a0 + (step * (c - 1)) / 2;
       for (let k = 0; k < c; k++) {
         const key = v + ':' + k;
         keep.add(key);
@@ -398,7 +411,7 @@ export class TableScreen implements Screen {
           el = document.createElement('button');
           el.className = 'hb';
           el.dataset.slot = String(v);
-          el.innerHTML = billHtml(v) + '<span class="lab"></span>';
+          el.innerHTML = billHtml(v) + `<span class="lab" style="--bc:${COL[v]}"></span>`;
           el.style.transform = `rotate(${this.GA[g]}deg) translateY(200px)`;
           hand.appendChild(el);
           this.handEls[key] = el;
@@ -410,7 +423,7 @@ export class TableScreen implements Screen {
           a = this.GA[g]! * 0.5 + (k - (n - 1) / 2) * st;
           lift = -95;
         } else {
-          a = a0 + k * step;
+          a = this.GA[g]! + (k - (c - 1) / 2) * inner;
           lift = anyOpen ? 36 : 0;
         }
         Object.assign(el.style, {
@@ -423,13 +436,14 @@ export class TableScreen implements Screen {
         requestAnimationFrame(() => (el!.style.transform = target));
         el.classList.toggle('ghost', n <= 0);
         el.classList.toggle('glow', glowV === v);
-        el.classList.toggle('hit', hitV === v && k === 0);
+        // L'etiqueta va al bitllet del mig del grup.
+        const mid = Math.floor((c - 1) / 2);
+        el.classList.toggle('hit', hitV === v && k === mid);
         el.setAttribute('aria-label', `${Math.max(n, 0)} bitllets de ${v}€`);
         const lab = el.querySelector<HTMLElement>('.lab')!;
-        lab.hidden = k !== 0;
-        lab.textContent = '×' + Math.max(n, 0);
+        lab.hidden = k !== mid;
+        lab.innerHTML = `<b>${v}<small>€</small></b><i>×${Math.max(n, 0)}</i>`;
       }
-      a0 += step * (c - 1 + GAP);
     });
     Object.keys(this.handEls).forEach((k) => {
       if (!keep.has(k)) {
@@ -702,31 +716,32 @@ export class TableScreen implements Screen {
         <div class="chips"><span>Vull</span><button data-a="payDir" data-v="down" class="${p.dir === 'down' ? 'on' : ''}">Més petits</button><button data-a="payDir" data-v="up" class="${p.dir === 'up' ? 'on' : ''}">Més grans</button></div>
         <p>${msg}</p><div class="bank"><span>${esc(Who)} té</span>${VALS.map((v) => `<i style="--bc:${COL[v]}" class="${stock[v] ? '' : 'out'}">${v}€ <b>×${stock[v]}</b></i>`).join('')}</div>`;
     } else {
+      const change = sum - p.amount;
+      const toName = p.to === BANK ? 'la banca' : esc(nameOf(p.to!));
       const msg =
-        sum < p.amount
-          ? `Toca els bitllets del teu ventall per posar-los aquí. Falten <b>${fmt(p.amount - sum)}€</b>.`
-          : sum > p.amount
-            ? `T'has passat <b>${fmt(sum - p.amount)}€</b>. Només es pot pagar just: treu algun bitllet o demana canvi.`
-            : `Just. ${p.to === BANK ? 'La banca' : esc(nameOf(p.to!))} rep ${fmt(p.amount)}€.`;
-      body = `<div class="tray">${
+        sum === 0
+          ? `Arrossega bitllets del ventall fins aquí, o toca'ls. Si et passes, ${toName} et torna el canvi.`
+          : change < 0
+            ? `Falten <b>${fmt(-change)}€</b>.`
+            : change > 0
+              ? `${cap(toName)} et tornarà <b>${fmt(change)}€</b> de canvi.`
+              : `Just. ${cap(toName)} rep ${fmt(p.amount)}€.`;
+      const drop = p.to && p.to !== BANK ? avatar(p.to, 'big') : '<span class="av big" style="background:#F2A65A;color:#151515">€</span>';
+      body = `<div class="tray drop ${sum >= p.amount ? 'full' : ''}" id="drop">${drop}<div class="given">${
         p.given.length
           ? p.given.map((v, i) => `<button class="mini" data-a="unGive" data-v="${i}" aria-label="Treure ${v}€">${billHtml(v)}</button>`).join('')
-          : '<span class="empty">Aquí hi van els bitllets</span>'
-      }</div><div class="sum">Hi has posat <b>${fmt(sum)}€</b> de ${fmt(p.amount)}€</div><p>${msg}</p>`;
+          : `<span class="empty">Deixa'ls anar aquí</span>`
+      }</div></div><div class="sum">Hi has posat <b>${fmt(sum)}€</b> de ${fmt(p.amount)}€</div><p>${msg}</p>`;
     }
     const enter = p.enter;
     p.enter = false;
     const head = p.to && p.to !== BANK ? avatar(p.to) : '<span class="av" style="background:#F2A65A;color:#151515">€</span>';
-    const seg =
-      p.amount === null
-        ? ''
-        : `<div class="seg"><button data-a="payMode" data-v="pay" class="${p.mode === 'pay' ? 'on' : ''}">Triar bitllets</button><button data-a="payMode" data-v="change" class="${p.mode === 'change' ? 'on' : ''}">Demanar canvi</button></div>`;
     const go =
       p.amount === null
         ? `<button class="pill red" data-a="payCancel">Fet</button>`
-        : `<button class="pill red" data-a="payGo" ${p.mode === 'pay' && sum === p.amount ? '' : 'disabled'}>Pagar ${fmt(p.amount)}€</button>`;
+        : `<button class="pill red" data-a="payGo" ${sum >= p.amount ? '' : 'disabled'}>Pagar ${fmt(p.amount)}€</button>`;
     el.innerHTML = `<div class="paybox sheet ${enter ? 'enter' : ''}" role="dialog" aria-label="${esc(p.title)}">
-      <div class="ph">${head}<div><small>${esc(p.sub)}</small><b>${esc(p.title)}</b></div></div>${seg}${body}
+      <div class="ph">${head}<div><small>${esc(p.sub)}</small><b>${esc(p.title)}</b></div></div>${body}
       <div class="row"><button class="pill" data-a="payCancel">${p.amount === null ? 'Tancar' : 'Cancel·lar'}</button>${go}</div></div>`;
   }
 
@@ -737,8 +752,23 @@ export class TableScreen implements Screen {
       return;
     }
     if (p.mode === 'pay' && p.amount !== null) {
+      const sum = p.given.reduce((a, x) => a + x, 0);
+      if (sum >= p.amount) {
+        this.toast('info', 'Ja n\u2019hi ha prou', 'Prem «Pagar». Si et passes, et tornen el canvi.', 2200);
+        return;
+      }
       p.given.push(v);
-      this.drawHand();
+      // Els bitllets que ja no calen tornen sols al ventall (p. ex. un de 20 si després hi poses un de 500).
+      const back: V[] = [];
+      for (;;) {
+        const change = p.given.reduce((a, x) => a + x, 0) - p.amount;
+        const spare = p.given.filter((x) => x <= change).sort((a, b) => b - a)[0];
+        if (spare === undefined) break;
+        p.given.splice(p.given.indexOf(spare), 1);
+        back.push(spare);
+      }
+      if (back.length) this.toast('ok', 'No calia', `${cap(billsTxt(back))} torna al ventall.`, 2200);
+      this.drawHand(null, null);
       this.drawPay();
       return;
     }
@@ -1368,6 +1398,53 @@ export class TableScreen implements Screen {
     pieces.addEventListener('pointerup', endDrag);
     pieces.addEventListener('pointercancel', endDrag);
 
+    // Pagar arrossegant: un bitllet del ventall es deixa anar a sobre de la finestra de pagar.
+    const hand = this.$('#hand');
+    const overDrop = (x: number, y: number) => {
+      const box = this.el.querySelector('#pay .paybox')?.getBoundingClientRect();
+      return !!box && x >= box.left && x <= box.right && y >= box.top && y <= box.bottom + 30;
+    };
+    hand.addEventListener('pointerdown', (e) => {
+      const p = this.pay;
+      if (!p || p.amount === null || p.mode !== 'pay') return;
+      const slot = (e.target as HTMLElement).closest<HTMLElement>('[data-slot]');
+      if (!slot) return;
+      const v = Number(slot.dataset.slot) as V;
+      if (this.handCount(v) <= 0) return;
+      this.handDrag = { v, sx: e.clientX, sy: e.clientY, el: null };
+      hand.setPointerCapture(e.pointerId);
+    });
+    hand.addEventListener('pointermove', (e) => {
+      const d = this.handDrag;
+      if (!d) return;
+      if (!d.el) {
+        if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8) return;
+        d.el = document.createElement('div');
+        d.el.className = 'flybill';
+        d.el.innerHTML = billHtml(d.v);
+        this.el.appendChild(d.el);
+        this.open = null;
+        this.drawHand(null, d.v);
+      }
+      const r = this.el.getBoundingClientRect();
+      d.el.style.left = e.clientX - r.left + 'px';
+      d.el.style.top = e.clientY - r.top + 'px';
+      this.el.querySelector('#drop')?.classList.toggle('over', overDrop(e.clientX, e.clientY));
+    });
+    const endHandDrag = (e: PointerEvent) => {
+      const d = this.handDrag;
+      this.handDrag = null;
+      if (!d?.el) return;
+      d.el.remove();
+      this.dragged = true;
+      setTimeout(() => (this.dragged = false), 50);
+      this.el.querySelector('#drop')?.classList.remove('over');
+      if (e.type === 'pointerup' && overDrop(e.clientX, e.clientY)) void this.payGive(d.v);
+      else this.drawHand();
+    };
+    hand.addEventListener('pointerup', endHandDrag);
+    hand.addEventListener('pointercancel', endHandDrag);
+
     this.el.addEventListener('submit', (e) => {
       e.preventDefault();
       const input = this.el.querySelector<HTMLInputElement>('#chatText');
@@ -1393,6 +1470,7 @@ export class TableScreen implements Screen {
     const target = e.target as HTMLElement;
     const slot = target.closest<HTMLElement>('[data-slot]');
     if (slot) {
+      if (this.dragged) return;
       this.closeMenu();
       const v = Number(slot.dataset.slot) as V;
       if (this.pay) return this.payGive(v);
@@ -1520,10 +1598,6 @@ export class TableScreen implements Screen {
           onPay: (bills) => this.app.act({ type: 'pay-request', requestId: r.id, bills }),
         });
       }
-      case 'payMode':
-        this.pay!.mode = v as 'pay' | 'change';
-        this.pay!.last = '';
-        return this.drawPay();
       case 'payWho':
         if (this.pay!.waitOffer) return;
         this.pay!.who = v;
@@ -1549,7 +1623,13 @@ export class TableScreen implements Screen {
         if (!ok) return;
         this.pay = null;
         this.redrawOverlays();
-        this.toast('ok', p.done ?? `Has pagat ${fmt(p.amount!)}€`, p.done ? 'Quan l\u2019accepti, es pagarà amb els bitllets que has triat.' : 'Just, sense canvi.', 3000);
+        const change = p.given.reduce((a, x) => a + x, 0) - p.amount!;
+        this.toast(
+          'ok',
+          p.done ?? `Has pagat ${fmt(p.amount!)}€`,
+          p.done ? 'Quan l\u2019accepti, es pagarà amb els bitllets que has triat.' : change ? `Et tornen ${fmt(change)}€ de canvi.` : 'Just, sense canvi.',
+          3000,
+        );
         return;
       }
       case 'offerYes':

@@ -5,7 +5,9 @@ import { BOARD, GO_SALARY, JAIL_FINE, MAX_PLAYERS, MIN_PLAYERS, getOwnable, getS
 import {
   addWallets,
   bankStartingWallet,
+  DENOMINATIONS,
   dealStartingMoney,
+  exactBills,
   hasBills,
   payFromBank,
   subtractWallets,
@@ -40,7 +42,7 @@ export interface MasterRequest {
   /** Només per a 'bank-payment': diners que la banca dona al jugador (p. ex. una carta de Sort). */
   amount?: number;
   reason?: string;
-  /** Bitllets amb què pagarà (compres, cases i hipoteques aixecades). Han de sumar l'import just. */
+  /** Bitllets amb què pagarà (compres, cases i hipoteques aixecades). Han de sumar almenys l'import; el canvi es torna sol. */
   bills?: Wallet;
   status: 'pending' | 'approved' | 'rejected';
 }
@@ -77,8 +79,10 @@ export interface Transaction {
   reason: string;
   /** Bitllets que han viatjat (per a l'animació dels bitllets volant). */
   bills: Wallet;
-  /** En un canvi de bitllets, el que `to` ha donat a `from` a canvi de `bills`. */
+  /** En un canvi de bitllets o un pagament amb canvi, el que `from` ha rebut de tornada. */
   returned?: Wallet;
+  /** En un pagament amb canvi, els bitllets que han acabat a mans de `to` (si no, són `bills`). */
+  received?: Wallet;
 }
 
 export interface Auction {
@@ -174,7 +178,7 @@ export type Action =
   | { type: 'resolve-request'; requestId: string; approve: boolean }
   | { type: 'request-payment'; debtor: PlayerId; square: number; diceTotal?: number }
   | { type: 'request-payment'; debtor: PlayerId; amount: number }
-  /** `bills`: els bitllets que tria el jugador. Han de sumar l'import just. */
+  /** `bills`: els bitllets que tria el jugador. Han de sumar almenys l'import; el canvi es torna sol. */
   | { type: 'pay-request'; requestId: string; bills: Partial<Wallet> }
   | { type: 'cancel-payment-request'; requestId: string }
   | { type: 'pay'; to: Party; amount: number; reason: string; bills: Partial<Wallet> }
@@ -241,25 +245,62 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
     if (!state.turnOrder.includes(actor)) throw new RuleError('No jugues en aquesta partida');
   };
 
-  /** Només es paga amb l'import just: qui cobra no torna mai canvi. */
+  /**
+   * Qui paga dona bitllets que sumen almenys l'import. Si s'ha passat, qui cobra torna el canvi
+   * amb els seus bitllets; si no en té, la banca fa de caixa i ho arregla.
+   */
   const transfer = (from: Party, to: Party, amount: number, reason: string, chosen?: Partial<Wallet>) => {
-    let bills: Wallet;
     if (from === BANK) {
       const paid = payFromBank(state.bank, amount);
       state.bank = paid.bank;
-      bills = paid.given;
-    } else {
-      if (!chosen) throw new RuleError('Tria amb quins bitllets pagues');
-      bills = toWallet(chosen);
-      if (!hasBills(state.wallets[from]!, bills)) throw new RuleError('No tens aquests bitllets');
-      if (walletTotal(bills) !== amount) {
-        throw new RuleError(`Els bitllets sumen ${walletTotal(bills)} i cal pagar ${amount} just. Demana canvi abans.`);
-      }
-      state.wallets[from] = subtractWallets(state.wallets[from]!, bills);
+      if (to === BANK) state.bank = addWallets(state.bank, paid.given);
+      else state.wallets[to] = addWallets(state.wallets[to]!, paid.given);
+      state.transactions.push({ id: nextId(), from, to, amount, reason, bills: paid.given });
+      return;
     }
-    if (to === BANK) state.bank = addWallets(state.bank, bills);
-    else state.wallets[to] = addWallets(state.wallets[to]!, bills);
-    state.transactions.push({ id: nextId(), from, to, amount, reason, bills });
+    if (!chosen) throw new RuleError('Tria amb quins bitllets pagues');
+    const bills = toWallet(chosen);
+    if (!hasBills(state.wallets[from]!, bills)) throw new RuleError('No tens aquests bitllets');
+    const total = walletTotal(bills);
+    if (total < amount) throw new RuleError(`Els bitllets sumen ${total} i cal pagar ${amount}. Falten ${amount - total}.`);
+    const change = total - amount;
+    // Cap bitllet pot ser més petit o igual que el canvi: vol dir que sobrava.
+    if (change > 0 && DENOMINATIONS.some((d) => bills[d] > 0 && d <= change)) {
+      throw new RuleError(`T'has passat ${change} i sobra algun bitllet. Treu-lo abans de pagar.`);
+    }
+    state.wallets[from] = subtractWallets(state.wallets[from]!, bills);
+    if (change === 0) {
+      if (to === BANK) state.bank = addWallets(state.bank, bills);
+      else state.wallets[to] = addWallets(state.wallets[to]!, bills);
+      state.transactions.push({ id: nextId(), from, to, amount, reason, bills });
+      return;
+    }
+    const pool = to === BANK ? state.bank : state.wallets[to]!;
+    const back = exactBills(pool, change);
+    let received: Wallet;
+    let returned: Wallet;
+    if (back) {
+      // Qui cobra torna el canvi de la seva cartera.
+      returned = back;
+      received = bills;
+      const updated = subtractWallets(addWallets(pool, bills), back);
+      if (to === BANK) state.bank = updated;
+      else state.wallets[to] = updated;
+    } else {
+      // Qui cobra no té canvi: la banca agafa els bitllets i paga l'import i el canvi.
+      if (to === BANK) throw new RuleError(`La banca no té canvi de ${change}. Prova-ho amb altres bitllets.`);
+      const cash = addWallets(state.bank, bills);
+      const toReceiver = exactBills(cash, amount);
+      const rest = toReceiver && subtractWallets(cash, toReceiver);
+      const toPayer = rest && exactBills(rest, change);
+      if (!toReceiver || !rest || !toPayer) throw new RuleError(`Ningú té canvi de ${change}. Prova-ho amb altres bitllets.`);
+      state.bank = subtractWallets(rest, toPayer);
+      state.wallets[to] = addWallets(state.wallets[to]!, toReceiver);
+      returned = toPayer;
+      received = toReceiver;
+    }
+    state.wallets[from] = addWallets(state.wallets[from]!, returned);
+    state.transactions.push({ id: nextId(), from, to, amount, reason, bills, returned, received });
   };
 
   const swap = (a: PlayerId, b: Party, give: Wallet, receive: Wallet, reason: string) => {
@@ -608,7 +649,7 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       const { square, bids } = state.auction;
       // Si el guanyador ja no té prou diners, guanya la puja vàlida anterior.
       const winner = [...bids].reverse().find((b) => balanceOf(state, b.player) >= b.amount);
-      // El guanyador paga a la banca amb l'import just, com qualsevol altre pagament.
+      // El guanyador paga a la banca, com qualsevol altre pagament.
       if (winner) {
         state.paymentRequests.push({
           id: nextId(),

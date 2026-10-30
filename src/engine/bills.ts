@@ -1,6 +1,5 @@
 // Bitllets: cada jugador i la banca tenen bitllets concrets i comptats, com al Monopoly de
-// cartró. Només es paga amb l'import just; qui no el té ha de canviar abans amb la banca o
-// amb un altre jugador.
+// cartró. Qui paga de més rep el canvi de qui cobra (o de la banca, si qui cobra no en té).
 
 export const DENOMINATIONS = [500, 100, 50, 20, 10, 5, 1] as const;
 export type Denomination = (typeof DENOMINATIONS)[number];

@@ -221,9 +221,101 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 .midrow .sort{white-space:nowrap}
 @media (max-width:380px){.midrow .sort{padding:0 9px;font-size:12px;gap:5px}}
-#hand{transform-origin:calc(50% + 16px) 100%;transition:transform .35s cubic-bezier(.3,1.25,.5,1)}
-#hand.paying{transform:translate(14px,-30px) scale(1.16)}
+#hand{transition:transform .35s cubic-bezier(.3,1.25,.5,1)}
+/* quan has de pagar, els bitllets pugen i se'n veu molt més que la punta */
+#hand.paying{transform:translateY(-78px)}
 #hand.paying .hb .lab{font-size:12px;height:21px}
+
+/* ---------- estil Monopoly clàssic, en versió d'app ----------
+   Tauler verd pàl·lid, vermell del rètol, tinta negra, lletra geomètrica en majúscules,
+   requadres rectes amb vora negra com les cartes, i la franja de colors de les caselles. */
+:root{
+  --outer:#B9D3BD; --felt:#CDE6D0; --felt-dark:#B4D5B9; --ink:#1A1A1A; --paper:#FFFFFF; --muted:#44524A;
+  --red:#E31E24; --ok:#1F8A43; --chance:#F7941D; --chest:#29A3DD;
+  --font:'League Spartan',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --frame:2px solid var(--ink); --rad:5px; --lift:0 2px 0 var(--ink);
+}
+body{font-weight:500}
+.app{background:var(--felt)}
+.app::before{content:"";position:absolute;left:0;right:0;top:0;height:6px;z-index:350;pointer-events:none;
+  background:linear-gradient(90deg,#5B3726 0 12.5%,#2E9DE6 0 25%,#E24FC2 0 37.5%,#E8672C 0 50%,#ED1B24 0 62.5%,#F0CF2C 0 75%,#2F9A2F 0 87.5%,#2341E0 0)}
+@media (min-width:600px) and (min-height:700px){.app{border-radius:8px;border:var(--frame)}}
+
+/* rètol: requadre vermell amb lletres blanques i vora negra */
+.logo{display:block;align-self:center;font-family:var(--font);font-weight:900;font-size:30px;letter-spacing:.04em;line-height:1;color:#fff;text-shadow:none;transform:none;
+  background:var(--red);border:3px solid var(--ink);border-radius:3px;padding:12px 18px 8px;box-shadow:inset 0 0 0 2px #fff,0 3px 0 var(--ink);margin:14px 0 4px}
+.screen h2{font-weight:800;font-size:19px;text-transform:uppercase;letter-spacing:.08em}
+.screen p.lead{font-size:14.5px;color:var(--muted)}
+
+/* botons: rectangles amb vora negra i text en majúscules */
+.pill{height:50px;border-radius:var(--rad);border:var(--frame);background:var(--paper);box-shadow:var(--lift);font-family:var(--font);font-weight:800;font-size:14.5px;text-transform:uppercase;letter-spacing:.07em;padding:3px 16px 0}
+.pill:active{transform:translateY(2px);box-shadow:none}
+.pill.red{background:var(--red);color:#fff}
+.btn{border-radius:var(--rad);border:var(--frame);box-shadow:var(--lift)}
+.btn:active{box-shadow:none}
+.sort{border-radius:var(--rad);border:var(--frame);box-shadow:var(--lift);font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em;padding:2px 11px 0 9px}
+.sort.endturn{background:var(--red);color:#fff}
+.link{font-size:13px;color:var(--ink);text-decoration-thickness:1.5px;text-underline-offset:3px}
+
+/* jugadors: cada un és com una casella del tauler, amb la franja del seu color */
+.users{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
+.user{border-radius:3px;border:var(--frame);box-shadow:var(--lift);padding:0 0 10px;gap:9px;overflow:hidden;font-weight:700;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em}
+.user .av{width:100%;height:24px;border:0;border-bottom:var(--frame);border-radius:0;font-size:0}
+.user.on{background:#FFF4C2;color:var(--ink);outline:3px solid var(--red);outline-offset:-1px}
+.user small{display:block;font-size:10px;letter-spacing:.06em;color:var(--red);font-weight:800;margin-top:2px}
+
+/* requadres: com les cartes de Sort i Caixa, vora negra i filet interior */
+.cardbox,.note,.paybox,.menu,.fc{border-radius:6px;border:var(--frame);box-shadow:0 3px 0 var(--ink),0 14px 30px rgba(0,0,0,.14)}
+.cardbox{outline:1px solid var(--ink);outline-offset:-7px;padding:18px}
+.cardbox p{font-size:14.5px}
+.cardbox p b{text-transform:uppercase;letter-spacing:.04em}
+.li{border-radius:3px;border:var(--frame);font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:14px;padding-top:8px}
+.li small{text-transform:none;letter-spacing:0}
+.li .num{border-radius:3px;background:var(--red);border:1.5px solid var(--ink)}
+.li .ok{color:var(--ok)}
+.av{border-width:2px}
+.mode{font-size:12px}
+
+/* taula: capçalera, saldo i torn */
+.turn{border-radius:var(--rad);border:var(--frame);height:30px;font-weight:800;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;padding-top:2px}
+.turn.mine{background:#FFF4C2}
+.bal{font-weight:900;font-size:42px;letter-spacing:-.5px}
+.bal small{color:var(--red);font-weight:800}
+.wm{font-family:var(--font);font-weight:900;font-size:30px;letter-spacing:.04em;color:#fff;opacity:.8;text-shadow:none;transform:translate(-50%,-50%) rotate(-38deg);
+  background:var(--red);border:3px solid var(--ink);border-radius:3px;padding:10px 16px 6px;box-shadow:inset 0 0 0 2px #fff}
+.empty-table{font-size:14px;color:var(--ink);background:rgba(255,255,255,.85);border:var(--frame);border-radius:6px;padding:10px 12px 8px;top:58%}
+
+/* menú, avisos i finestres */
+.menu{padding:6px}
+.menu button{font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.05em;border-radius:3px;padding-top:3px}
+.menu .sw{border-radius:2px;border-width:2px}
+.menu h4{font-weight:800;letter-spacing:.12em;color:var(--red)}
+.note{border-radius:6px}
+.note b{font-weight:800}
+.note.urgent{border:3px solid var(--red);background:#FFF4C2}
+.toast{border-radius:6px;border:2px solid #fff;outline:2px solid var(--ink);padding:12px 14px 10px}
+.toast b{font-weight:800;text-transform:uppercase;letter-spacing:.04em;font-size:13.5px}
+.ph b{font-weight:800}
+.ph small,.chips span{letter-spacing:.1em;font-weight:800}
+.seg,.chips button,.opt,.field input,.chatin input,.chatin button{border-radius:3px;border-width:2px}
+.seg button,.chips button,.opt{font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:12.5px;padding-top:2px}
+.tray{border-radius:4px;border:2px dashed #7F9585}
+.ov{background:rgba(205,230,208,.9)}
+.auction .big{font-weight:900}
+.msg{border-radius:4px;background:#fff;border:1.5px solid var(--ink)}
+.msg.me{border-radius:4px}
+.wallet span{border-radius:3px}
+.hb .lab{border-radius:3px;font-weight:800}
+
+/* cartes de propietat: «TÍTOL DE PROPIETAT» a la franja, com les de debò */
+.hd{flex-direction:column;gap:2px;font-family:var(--font);font-weight:900;font-size:8.5px;letter-spacing:.03em;padding:4px 3px 3px}
+.deed:not(.st) .hd::before{content:"TÍTOL DE PROPIETAT";font-size:4.6px;letter-spacing:.12em;font-weight:700;opacity:.9}
+.fh{font-family:var(--font);font-weight:900;font-size:18px;letter-spacing:.03em;padding:8px 6px 7px;display:flex;flex-direction:column;gap:3px}
+.fh::before{content:"TÍTOL DE PROPIETAT";font-size:8.5px;letter-spacing:.2em;font-weight:700}
+.fst{font-family:var(--font);font-weight:900}
+.rent b{font-weight:900}
+.bill .brand{font-family:var(--font);font-weight:900;font-size:5.4px;letter-spacing:.1em}
+.bill .oval,.bill .c{font-weight:900}
 
 /* ---------- franja del tauler amb els peons ---------- */
 .app{--top:env(safe-area-inset-top,0px)}
@@ -282,3 +374,5 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 .cube .f4{transform:rotateX(-90deg) translateZ(35px)}
 .dsum{font-size:54px;font-weight:800;line-height:1;display:flex;flex-direction:column;align-items:center;animation:land2 .45s cubic-bezier(.3,1.6,.5,1)}
 .dsum small{font-size:13px;letter-spacing:2px;color:var(--red);margin-top:4px}
+/* a la taula, la franja del tauler ja fa de filet de colors */
+.app.game::before{display:none}

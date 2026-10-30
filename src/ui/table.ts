@@ -21,10 +21,12 @@ const BW = 60;
 const BH = 126;
 const HW = 74;
 const HH = 155;
-const HR = 175;
-const SPAN = 46;
-/** Quan pagues, el ventall s'obre més perquè es vegin bé tots els bitllets. */
-const SPAN_PAYING = 48;
+/** Distància del pivot al peu del bitllet: com més gran, més pla és el ventall i més amplada ocupa. */
+const HR = 375;
+/** Pivot sota la pantalla: només en sobresurt la punta dels bitllets (uns 80px). */
+const PIVOT_DEPTH = 450;
+/** Obertura màxima entre dos bitllets, perquè amb pocs bitllets no quedin massa separats. */
+const MAX_STEP = 6;
 const DY_CARD = 26;
 /** On comencen les cartes: sota els botons de dalt i la franja del tauler. */
 const TOP = 136 + 66;
@@ -361,7 +363,7 @@ export class TableScreen implements Screen {
   }
 
   private pivot() {
-    return { x: this.W / 2 + 16, y: this.H + 250 };
+    return { x: this.W / 2, y: this.H + PIVOT_DEPTH };
   }
 
   private drawHand(hitV: V | null = null, glowV: V | null = null) {
@@ -373,7 +375,10 @@ export class TableScreen implements Screen {
     const counts = VALS.map((v) => Math.max(this.handCount(v), 1));
     const units = counts.reduce((a, n) => a + n, 0) - 1 + GAP * (VALS.length - 1);
     const paying = !!this.pay;
-    const step = Math.min(paying ? 4.5 : 4, (paying ? SPAN_PAYING : SPAN) / units);
+    // El ventall ocupa tota l'amplada de baix: l'angle total es calcula perquè les puntes arribin a les vores.
+    const reach = Math.max(40, this.W / 2 - HW / 2 - 10);
+    const span = (2 * Math.asin(Math.min(1, reach / (HR + HH))) * 180) / Math.PI;
+    const step = Math.min(MAX_STEP, span / Math.max(units, 1));
     let a0 = (-step * units) / 2;
     let z = 0;
     this.GA = [];

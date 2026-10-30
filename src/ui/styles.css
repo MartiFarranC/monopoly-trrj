@@ -176,7 +176,7 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 .link{border:0;background:none;text-decoration:underline;font-size:13px;color:var(--muted);padding:6px}
 
 /* ---------- taula: avisos, llistes i subhasta ---------- */
-.inbox{position:absolute;left:14px;right:14px;top:calc(130px + env(safe-area-inset-top,0px));z-index:420;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.inbox{position:absolute;left:14px;right:14px;top:calc(130px + var(--top));z-index:420;display:flex;flex-direction:column;gap:8px;pointer-events:none}
 .note{pointer-events:auto;background:var(--paper);border:1.5px solid var(--ink);border-radius:14px;box-shadow:0 4px 0 rgba(0,0,0,.18),0 14px 30px rgba(0,0,0,.14);padding:10px 12px;display:flex;align-items:center;gap:10px;animation:toast .4s cubic-bezier(.3,1.3,.5,1)}
 .note .av{width:34px;height:34px;font-size:13px}
 .note div{flex:1;min-width:0}
@@ -228,3 +228,24 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 #hand{transform-origin:calc(50% + 16px) 100%;transition:transform .35s cubic-bezier(.3,1.25,.5,1)}
 #hand.paying{transform:translate(14px,-30px) scale(1.16)}
 #hand.paying .hb .lab{font-size:12px;height:21px}
+
+/* ---------- franja del tauler amb els peons ---------- */
+.app{--top:env(safe-area-inset-top,0px)}
+.app.game{--top:calc(env(safe-area-inset-top,0px) + 66px)}
+.board{position:absolute;left:0;right:0;top:0;height:calc(66px + env(safe-area-inset-top,0px));padding-top:env(safe-area-inset-top,0px);overflow-x:auto;overflow-y:hidden;touch-action:pan-x;-webkit-overflow-scrolling:touch;scrollbar-width:none;background:var(--paper);border-bottom:1.5px solid var(--ink);z-index:310}
+.board::-webkit-scrollbar{display:none}
+.track{position:relative;display:flex;height:100%;width:max-content}
+.sq{position:relative;width:56px;flex:none;height:100%;border-right:1px solid #C9D1CB;display:flex;flex-direction:column;align-items:center;padding:0 3px;background:#F4F8F4}
+.sq.corner{background:#E5EFE6}
+.sq .band{display:block;align-self:stretch;height:9px;margin:0 -3px;border-bottom:1px solid var(--ink)}
+.sq span{margin-top:3px;padding-top:1px;font-size:7.5px;line-height:1.25;font-weight:700;text-align:center;text-transform:uppercase;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.sq .own{position:absolute;left:4px;right:4px;bottom:2px;height:3px;border-radius:2px}
+.pawn{position:absolute;width:18px;transition:left .17s cubic-bezier(.3,1.2,.5,1),bottom .17s;pointer-events:none;filter:drop-shadow(0 1.5px 0 rgba(0,0,0,.25))}
+.pawn svg{display:block}
+.pawn.me::after{content:'';position:absolute;left:50%;top:-6px;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:var(--ink)}
+.pawn.now{animation:bob 1.4s ease-in-out infinite}
+.pawn.hop{animation:hop .19s ease-out}
+.pawn.jail{transition:left .45s cubic-bezier(.5,0,.3,1)}
+@keyframes hop{50%{transform:translateY(-9px)}}
+@keyframes bob{50%{transform:translateY(-3px)}}
+.turn svg{margin-left:-2px}

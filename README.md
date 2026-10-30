@@ -9,7 +9,7 @@ El Monopoly de Tarroja de Segarra com a web (PWA) per jugar des del mòbil, iPho
 3. Els jugadors triats entren, veuen la sala d'espera i premen **Unir-me**. El màster veu qui hi ha entrat, tria l'ordre de torn i comença.
 4. A la taula tens les teves cartes al mig i els bitllets en ventall a baix. Des del menú pots comprar, posar cases, pagar, canviar bitllets, cobrar la Sortida, subhastar i hipotecar.
 5. Compres, cases, hipoteques i cobraments de la banca els accepta el màster. Els pagaments entre jugadors no: el propietari toca la carta, prem **Sol·licitar paga** i tria qui ha caigut.
-6. Només es paga just. Si no tens l'import exacte, demana canvi a la banca o a un altre jugador, cap a bitllets més petits o més grans. La banca té 30 bitllets de cada.
+6. Per pagar, arrossega bitllets del ventall fins a la finestra de pagar (o toca'ls). Si et passes, qui cobra et torna el canvi; si no en té, el fa la banca. També pots canviar bitllets amb la banca o amb un altre jugador des del menú. La banca té 30 bitllets de cada.
 
 Per instal·lar-la com una app: a l'iPhone, Safari → Compartir → «Afegir a la pantalla d'inici»; a Android, Chrome → menú → «Instal·lar l'aplicació».
 

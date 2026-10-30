@@ -13,7 +13,7 @@ import {
   rentFor,
 } from '../engine/rules';
 import type { App, Screen } from './app';
-import { BoardStrip, pawnSvg } from './board';
+import { BoardStrip, pawnToken } from './board';
 import { CHECK, COL, GROUP, VALS, avatar, billHtml, deedHtml, esc, fmt, groupKey, nameOf, sortKey, squareIcon } from './visual';
 
 type V = Denomination;
@@ -501,7 +501,7 @@ export class TableScreen implements Screen {
     const d = this.st.lastDice;
     const dice = d ? `<span class="dicechip">${d[0]}+${d[1]} = ${d[0] + d[1]}</span>` : '';
     const pawn = this.st.pawns?.[cur];
-    this.$('#turn').innerHTML = `${avatar(cur)}${cur === this.me ? 'El teu torn' : 'Torn de ' + esc(userById(cur).name)}${pawn ? pawnSvg(pawn, 13) : ''}${dice}`;
+    this.$('#turn').innerHTML = `${avatar(cur)}${cur === this.me ? 'El teu torn' : 'Torn de ' + esc(userById(cur).name)}${pawn ? pawnToken(pawn, 'mini') : ''}${dice}`;
     this.$('#turn').classList.toggle('mine', cur === this.me);
     this.$('#endTurn').hidden = cur !== this.me;
     const unread = this.st.chat.filter((m) => m.author !== this.me);
@@ -568,7 +568,7 @@ export class TableScreen implements Screen {
     if (!this.pay && this.focus === null && !this.panel) {
       const free = this.freeLanding();
       if (free) {
-        notes.push(`<div class="note">${pawnSvg(st.pawns?.[this.me] ?? '#fff', 26)}<div><b>${esc(free.name)} és lliure</b><span>Compra-la per ${fmt(free.price)}€ o subhasta-la.</span></div>
+        notes.push(`<div class="note">${pawnToken(st.pawns?.[this.me] ?? '#fff', 'big')}<div><b>${esc(free.name)} és lliure</b><span>Compra-la per ${fmt(free.price)}€ o subhasta-la.</span></div>
           <div class="acts"><button class="pill" data-a="landAuction" data-v="${free.index}">Subhastar</button><button class="pill red" data-a="landBuy" data-v="${free.index}">Comprar</button></div></div>`);
       }
       if (st.jail?.[this.me] !== undefined && currentPlayer(st) === this.me && st.doubles !== null) {
@@ -869,12 +869,56 @@ export class TableScreen implements Screen {
       ${this.isMaster ? `<button class="pill red wide" data-a="closeAuction">Tancar la subhasta</button>` : ''}</div></div>`;
   }
 
-  private drawDice(rolling: boolean, d: [number, number]) {
-    const pips: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
-    this.$('#ov').innerHTML = `<button class="ov" data-a="closeOv" aria-label="Tancar els daus" style="border:0;width:100%">
-      <div style="display:flex;gap:24px">${d.map((v) => `<div class="die ${rolling ? 'roll' : 'land'}">${Array.from({ length: 9 }, (_, k) => `<span style="background:${pips[v]!.includes(k) ? '#151515' : 'transparent'}"></span>`).join('')}</div>`).join('')}</div>
-      <div style="font-size:40px;font-weight:800">${rolling ? '…' : d[0] + d[1] + (d[0] === d[1] ? ' · dobles' : '')}</div>
-      <div style="font-size:13px;color:var(--muted)">Tothom ho veu a dalt. Toca per tornar a la taula.</div></button>`;
+  /** Dos daus de veritat (cubs 3D) que es llancen, rodolen, reboten i s'aturen al resultat. */
+  private drawDice(d: [number, number]): Promise<void> {
+    const pips: Record<number, number[]> = { 1: [4], 2: [2, 6], 3: [2, 4, 6], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+    const face = (v: number) => `<div class="face f${v}">${Array.from({ length: 9 }, (_, k) => `<span${pips[v]!.includes(k) ? ' class="p"' : ''}></span>`).join('')}</div>`;
+    this.$('#ov').innerHTML = `<button class="ov dice-ov" data-a="closeOv" aria-label="Tancar els daus" style="border:0;width:100%">
+      <div class="dicepit">${d.map(() => `<div class="throw"><i class="dsh"></i><div class="cube">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div>`).join('')}</div>
+      <div class="dsum" hidden></div></button>`;
+    // Rotació que deixa cada valor de cara a qui mira.
+    const rest: Record<number, [number, number]> = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180] };
+    const throws = [...this.el.querySelectorAll<HTMLElement>('.throw')];
+    const runs = throws.map((t, i) => {
+      const [rx, ry] = rest[d[i]!]!;
+      const spinX = 360 * (2 + i) * (i ? -1 : 1);
+      const spinY = 360 * (1 + i);
+      const z = (Math.random() * 30 - 15).toFixed(1);
+      const dur = 1250 + i * 120;
+      const cube = t.querySelector<HTMLElement>('.cube')!;
+      const sh = t.querySelector<HTMLElement>('.dsh')!;
+      const from = i ? 140 : -140;
+      t.animate(
+        [
+          { transform: `translate(${from}px, 320px)` },
+          { transform: `translate(${from * 0.35}px, -70px)`, offset: 0.35 },
+          { transform: 'translate(0, 0)', offset: 0.6 },
+          { transform: 'translate(0, -22px)', offset: 0.75 },
+          { transform: 'translate(0, 0)', offset: 0.88 },
+          { transform: 'translate(0, -4px)', offset: 0.94 },
+          { transform: 'translate(0, 0)' },
+        ],
+        { duration: dur, easing: 'cubic-bezier(.3,.2,.4,1)', fill: 'both' },
+      );
+      sh.animate(
+        [{ transform: 'scale(.3)', opacity: 0 }, { transform: 'scale(.5)', opacity: 0.4, offset: 0.35 }, { transform: 'scale(1)', opacity: 1, offset: 0.6 }, { transform: 'scale(.75)', offset: 0.75 }, { transform: 'scale(1)' }],
+        { duration: dur, fill: 'both' },
+      );
+      return cube.animate(
+        [
+          { transform: `rotateX(${rx + spinX}deg) rotateY(${ry + spinY}deg) rotateZ(${z}deg)` },
+          { transform: `rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${Number(z) / 3}deg)`, offset: 0.82 },
+          { transform: `rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(0deg)` },
+        ],
+        { duration: dur, easing: 'cubic-bezier(.2,.6,.35,1)', fill: 'both' },
+      ).finished;
+    });
+    return Promise.all(runs).then(() => {
+      const sum = this.el.querySelector<HTMLElement>('.dsum');
+      if (!sum) return;
+      sum.innerHTML = `${d[0] + d[1]}${d[0] === d[1] ? '<small>DOBLES</small>' : ''}`;
+      sum.hidden = false;
+    });
   }
 
   private drawChat() {
@@ -1431,14 +1475,19 @@ export class TableScreen implements Screen {
         this.overlay = 'dice';
         this.rolling = true;
         const r = () => 1 + Math.floor(Math.random() * 6);
-        const iv = setInterval(() => this.drawDice(true, [r(), r()]), 90);
         const final: [number, number] = [r(), r()];
-        setTimeout(async () => {
-          clearInterval(iv);
+        void this.drawDice(final).then(async () => {
           this.rolling = false;
-          this.drawDice(false, final);
           await this.app.act({ type: 'roll-dice', dice: final });
-        }, 900);
+          // Un moment per veure el resultat i, tot sol, a mirar com avança el peó.
+          setTimeout(() => {
+            if (this.overlay !== 'dice') return;
+            this.overlay = null;
+            this.$('#ov').innerHTML = '';
+            this.drawTop();
+            this.drawFocus();
+          }, 900);
+        });
         return;
       }
       case 'chat':

@@ -3,12 +3,15 @@
 
 import { BOARD, type Square } from '../data/board';
 import { userById } from '../data/users';
-import type { GameState, PawnMove } from '../engine/game';
+import { PAWN_COLORS, type GameState, type PawnMove } from '../engine/game';
 import { GROUP, esc } from './visual';
 
 /** Amplada d'una casella, en píxels (ha de coincidir amb .sq a styles.css). */
 const CW = 56;
-const STEP_MS = 190;
+/** Temps de cada salt d'una casella a la següent. */
+const STEP_MS = 300;
+/** Amplada del peó (ha de coincidir amb .tok a styles.css). */
+const PW = 22;
 
 const SHORT: Partial<Record<Square['kind'], string>> = {
   go: 'SORTIDA',
@@ -19,8 +22,27 @@ const SHORT: Partial<Record<Square['kind'], string>> = {
   'community-chest': 'CAIXA',
 };
 
-export function pawnSvg(color: string, sz = 18): string {
-  return `<svg width="${sz}" height="${Math.round(sz * 1.25)}" viewBox="0 0 16 20" aria-hidden="true"><path d="M8 1.2a3.4 3.4 0 0 1 2 6.2c1 .9 1.6 2.3 1.9 4.1l.8 4.5H3.3l.8-4.5c.3-1.8.9-3.2 1.9-4.1a3.4 3.4 0 0 1 2-6.2z" fill="${color}" stroke="#151515" stroke-width="1.3" stroke-linejoin="round"/><rect x="1.6" y="16" width="12.8" height="3" rx="1.2" fill="${color}" stroke="#151515" stroke-width="1.3"/></svg>`;
+/** Fitxes metàl·liques com les del Monopoly. Cada color de la partida va amb una fitxa. */
+const TOKENS: Record<string, string> = {
+  cotxe: '<path d="M2.5 16v-3.2l2.4-.7 2.6-3.6h7.6l3.2 3.6 3.2.8V16z"/><path d="M8.4 9.6h2.8v2.5H6.6zM12.6 9.6h2.2l2 2.5h-4.2z" class="d"/><circle cx="7" cy="16.4" r="2.3"/><circle cx="17.2" cy="16.4" r="2.3"/>',
+  barret: '<ellipse cx="12" cy="18" rx="9.5" ry="2.4"/><path d="M6.6 17.5V6.2C6.6 4.8 9 4 12 4s5.4.8 5.4 2.2v11.3z"/><path d="M6.6 14h10.8v2.4H6.6z" class="d"/>',
+  gos: '<path d="M3 12.5 4.3 9l2-.6L7.5 5l2.2 2.4h1.2l1.1 1.3v1.6h6.4l1.8-2.1 1 .9-.9 3.1v6.3h-2.3v-3.3h-6.7v3.3H8.9v-3.4l-2.6-1.3L3.5 14z"/><circle cx="7.6" cy="9.6" r=".8" class="d"/>',
+  vaixell: '<path d="M2.5 15h19l-3.3 4.6H5.8z"/><path d="M11.4 3h1.2v12h-1.2z"/><path d="M13 4.2 18.6 13H13zM11 6.4 6 13h5z"/>',
+  bota: '<path d="M6.5 3h6.8v9.3l5.8 3.2c1.3.7 1.8 1.9 1.8 3.5H4.8v-2.6l1.7-1.3z"/><path d="M6.5 6h6.8v1.4H6.5z" class="d"/>',
+  didal: '<path d="M7 18.6 8.1 8a3.9 3.9 0 0 1 7.8 0L17 18.6z"/><path d="M6.2 18h11.6v2.6H6.2z"/><g class="d"><circle cx="10" cy="10" r=".7"/><circle cx="12.6" cy="9.4" r=".7"/><circle cx="11" cy="12.6" r=".7"/><circle cx="13.7" cy="12.2" r=".7"/><circle cx="10.4" cy="15.2" r=".7"/><circle cx="13.4" cy="15" r=".7"/></g>',
+  planxa: '<path d="M2.5 17.5c0-4.2 4.2-7.3 10.4-7.3h4.4l3.3 7.3z"/><path d="M8 10.4c0-3 2.2-4.3 5.2-4.3h4.4v1.9h-4.2c-1.9 0-3 .8-3 2.4z"/>',
+  carreto: '<path d="M3.5 8.5h13.8l-2.3 6.3H6.4z"/><path d="m3.7 8.8-2.6-3 1-.8 2.8 3.2zM6.6 14.4l-.9 4.4h1.4l1-4.4z"/><circle cx="16.4" cy="17.2" r="2.6"/><circle cx="16.4" cy="17.2" r=".9" class="d"/>',
+};
+const TOKEN_ORDER = ['cotxe', 'barret', 'gos', 'vaixell', 'bota', 'didal', 'planxa', 'carreto'];
+
+/** Gradient metàl·lic compartit per totes les fitxes. */
+export const PEWTER = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="pewter" x1="0" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#F4F6F8"/><stop offset=".45" stop-color="#B8BEC6"/><stop offset=".7" stop-color="#8D949D"/><stop offset="1" stop-color="#C9CED4"/></linearGradient></defs></svg>`;
+
+/** Fitxa d'un jugador: la figura metàl·lica sobre una base del seu color. */
+export function pawnToken(color: string, cls = ''): string {
+  const i = Math.max(0, PAWN_COLORS.indexOf(color as (typeof PAWN_COLORS)[number]));
+  const name = TOKEN_ORDER[i % TOKEN_ORDER.length]!;
+  return `<span class="tok ${cls}" style="--c:${color}" data-token="${name}"><i class="base"></i><svg viewBox="0 0 24 22" aria-hidden="true">${TOKENS[name]}</svg></span>`;
 }
 
 function cell(sq: Square, owner: string | undefined): string {
@@ -54,7 +76,7 @@ export class BoardStrip {
     private root: HTMLElement,
     private me: string,
   ) {
-    root.innerHTML = `<div class="track">${BOARD.map((s) => cell(s, undefined)).join('')}</div>`;
+    root.innerHTML = `${PEWTER}<div class="track">${BOARD.map((s) => cell(s, undefined)).join('')}</div>`;
     this.track = root.querySelector('.track')!;
     // Si algú mira el tauler amb el dit, al cap d'una estona torna sol al peó de qui té el torn.
     const back = () => {
@@ -91,7 +113,7 @@ export class BoardStrip {
         el = document.createElement('div');
         el.className = 'pawn' + (p === this.me ? ' me' : '');
         el.setAttribute('aria-label', `Peó de ${userById(p).name}`);
-        el.innerHTML = pawnSvg(pawns[p]!);
+        el.innerHTML = `<i class="sh"></i><div class="body">${pawnToken(pawns[p]!)}</div><em class="left"></em>`;
         this.track.append(el);
         this.pawnEls[p] = el;
         this.shown[p] = positions[p] ?? 0;
@@ -123,32 +145,52 @@ export class BoardStrip {
     const p = move.player;
     this.animating.add(p);
     const el = this.pawnEls[p];
+    const left = el?.querySelector<HTMLElement>('.left');
+    el?.classList.add('walking');
+    // Salta casella per casella: cada casella on toca s'enfonsa una mica i s'il·lumina.
     for (let k = 1; k <= move.steps; k++) {
       this.shown[p] = (move.from + k) % BOARD.length;
-      el?.classList.remove('hop');
+      if (left) left.textContent = String(move.steps - k || '');
+      el?.classList.remove('jump');
       void el?.offsetWidth;
-      el?.classList.add('hop');
+      el?.classList.add('jump');
       this.place(st.turnOrder);
       this.follow(this.shown[p]!);
-      await wait(STEP_MS);
+      await wait(STEP_MS * 0.8);
+      this.tick(this.shown[p]!, k === move.steps);
+      await wait(STEP_MS * 0.2);
     }
+    el?.classList.remove('jump', 'walking');
     if (this.shown[p] !== move.to) {
       // De «Ves a la presó» cap a la Presó, d'una revolada.
-      await wait(350);
+      await wait(450);
       this.shown[p] = move.to;
       el?.classList.add('jail');
       this.place(st.turnOrder);
       this.follow(move.to);
-      await wait(500);
+      await wait(700);
       el?.classList.remove('jail');
+      this.tick(move.to, true);
     }
-    el?.classList.remove('hop');
+    el?.classList.add('arrive');
+    await wait(350);
+    el?.classList.remove('arrive');
     this.animating.delete(p);
     // Si mentrestant ha tornat a moure (o el màster l'ha corregit), queda on diu la partida.
     const latest = this.st ?? st;
     this.shown[p] = latest.positions?.[p] ?? move.to;
     this.place(latest.turnOrder);
     this.onLanded(move);
+  }
+
+  /** La casella on toca el peó: s'enfonsa i s'il·lumina; la final es queda marcada una estona. */
+  private tick(i: number, last: boolean) {
+    const sq = this.track.querySelector<HTMLElement>(`.sq[data-sq="${i}"]`);
+    if (!sq) return;
+    sq.classList.remove('tick', 'dest');
+    void sq.offsetWidth;
+    sq.classList.add(last ? 'dest' : 'tick');
+    window.setTimeout(() => sq.classList.remove('tick', 'dest'), last ? 1600 : 400);
   }
 
   /** Col·loca els peons; si n'hi ha uns quants a la mateixa casella, es reparteixen. */
@@ -165,11 +207,11 @@ export class BoardStrip {
       ps.forEach((p, k) => {
         const row = Math.floor(k / 4);
         const col = k % 4;
-        const spread = perRow > 1 ? Math.min(12, (CW - 22) / (perRow - 1)) : 0;
-        const x = i * CW + CW / 2 - 9 + (col - (perRow - 1) / 2) * spread;
+        const spread = perRow > 1 ? Math.min(12, (CW - PW) / (perRow - 1)) : 0;
+        const x = i * CW + CW / 2 - PW / 2 + (col - (perRow - 1) / 2) * spread;
         const el = this.pawnEls[p]!;
         el.style.left = `${x}px`;
-        el.style.bottom = `${6 + row * 9}px`;
+        el.style.bottom = `${5 + row * 9}px`;
         el.style.zIndex = String(10 + row * 5 + k + (p === this.me ? 20 : 0));
       });
     });

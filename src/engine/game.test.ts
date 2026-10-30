@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction, balanceOf, createGame, type Action, type GameState } from './game';
+import { PAWN_COLORS, applyAction, balanceOf, createGame, dealPawns, type Action, type GameState } from './game';
 import { RuleError } from './rules';
 
 const MARRO_1 = 1; // La Font, 60
@@ -220,5 +220,135 @@ describe('xat i final', () => {
     expect(() => applyAction(s, 'anna', { type: 'end-game' })).toThrow(/màster/);
     s = applyAction(s, 'marti', { type: 'end-game' });
     expect(s.status).toBe('finished');
+  });
+});
+
+describe('peons', () => {
+  it('cada jugador té un color diferent i comença a la Sortida', () => {
+    const s = startedGame();
+    const colors = s.turnOrder.map((p) => s.pawns![p]);
+    expect(new Set(colors).size).toBe(3);
+    colors.forEach((c) => expect(PAWN_COLORS).toContain(c));
+    s.turnOrder.forEach((p) => expect(s.positions![p]).toBe(0));
+  });
+
+  it('amb 8 jugadors no es repeteix cap color', () => {
+    const players = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    expect(new Set(Object.values(dealPawns(players))).size).toBe(8);
+  });
+
+  it('avança el peó de qui té el torn segons els daus', () => {
+    let s = startedGame();
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [3, 4] });
+    expect(s.positions!.anna).toBe(7);
+    expect(s.lastMove).toMatchObject({ player: 'anna', from: 0, steps: 7, to: 7 });
+    // Qui no té el torn pot tirar, però el seu peó no es mou.
+    s = applyAction(s, 'pere', { type: 'roll-dice', dice: [6, 6] });
+    expect(s.positions!.pere).toBe(0);
+  });
+
+  it('amb dobles torna a tirar, i si no, ha d’acabar el torn', () => {
+    let s = startedGame();
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 1] });
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 2] });
+    expect(s.positions!.anna).toBe(5);
+    expect(() => applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 2] })).toThrow(/Ja has tirat/);
+    s = applyAction(s, 'anna', { type: 'end-turn' });
+    s = applyAction(s, 'marti', { type: 'roll-dice', dice: [2, 3] });
+    expect(s.positions!.marti).toBe(5);
+  });
+
+  it('de «Ves a la presó» va a la Presó i no cobra la Sortida', () => {
+    let s = startedGame();
+    s.positions!.anna = 24;
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [2, 4] });
+    expect(s.positions!.anna).toBe(10);
+    expect(s.jail!.anna).toBe(0);
+    expect(s.lastMove).toMatchObject({ from: 24, steps: 6, to: 10, jailed: true });
+  });
+
+  it('tres dobles seguits, a la presó', () => {
+    let s = startedGame();
+    s = run(s, [
+      ['anna', { type: 'roll-dice', dice: [1, 1] }],
+      ['anna', { type: 'roll-dice', dice: [2, 2] }],
+      ['anna', { type: 'roll-dice', dice: [3, 3] }],
+    ]);
+    expect(s.positions!.anna).toBe(10);
+    expect(s.jail!.anna).toBe(0);
+  });
+
+  it('a la presó: dobles per sortir, o a la tercera paga la fiança', () => {
+    let s = startedGame();
+    s.positions!.anna = 10;
+    s.jail = { anna: 0 };
+    const next = (x: GameState) => run(x, [['anna', { type: 'end-turn' }], ['marti', { type: 'end-turn' }], ['pere', { type: 'end-turn' }]]);
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 2] });
+    expect(s.positions!.anna).toBe(10);
+    s = applyAction(next(s), 'anna', { type: 'roll-dice', dice: [1, 2] });
+    expect(s.positions!.anna).toBe(10);
+    s = applyAction(next(s), 'anna', { type: 'roll-dice', dice: [1, 2] });
+    expect(s.positions!.anna).toBe(13);
+    expect(s.jail!.anna).toBeUndefined();
+    expect(s.paymentRequests.at(-1)).toMatchObject({ creditor: 'bank', debtor: 'anna', amount: 50, status: 'pending' });
+
+    let t = startedGame();
+    t.positions!.anna = 10;
+    t.jail = { anna: 1 };
+    t = applyAction(t, 'anna', { type: 'roll-dice', dice: [4, 4] });
+    expect(t.positions!.anna).toBe(18);
+    expect(t.paymentRequests).toHaveLength(0);
+    // En sortir amb dobles no es torna a tirar.
+    expect(() => applyAction(t, 'anna', { type: 'roll-dice', dice: [1, 2] })).toThrow(/Ja has tirat/);
+  });
+
+  it('pot pagar la fiança abans de tirar', () => {
+    let s = startedGame();
+    s.jail = { anna: 0 };
+    s = applyAction(s, 'anna', { type: 'leave-jail' });
+    expect(s.jail!.anna).toBeUndefined();
+    expect(s.paymentRequests.at(-1)).toMatchObject({ debtor: 'anna', amount: 50, reason: 'Fiança per sortir de la presó' });
+  });
+
+  it('en passar per la Sortida la banca paga 200 sola', () => {
+    let s = startedGame();
+    s.positions!.anna = 35;
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [3, 4] });
+    expect(s.positions!.anna).toBe(2);
+    expect(balanceOf(s, 'anna')).toBe(1700);
+    expect(s.lastMove!.passedGo).toBe(true);
+  });
+
+  it('en caure a una propietat d’un altre, se li demana el lloguer', () => {
+    let s = startedGame();
+    s.deeds[MARRO_1] = { owner: 'pere', buildings: 0, mortgaged: false };
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 1] });
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 2] });
+    // 0 → 2 (Caixa) → 5 (Plaça Vella, lliure): cap lloguer.
+    expect(s.paymentRequests).toHaveLength(0);
+    let t = startedGame();
+    t.deeds[ESTACIO_1] = { owner: 'pere', buildings: 0, mortgaged: false };
+    t = applyAction(t, 'anna', { type: 'roll-dice', dice: [2, 3] });
+    expect(t.paymentRequests.at(-1)).toMatchObject({ creditor: 'pere', debtor: 'anna', amount: 25, square: ESTACIO_1, status: 'pending' });
+    // Si està hipotecada, res.
+    let u = startedGame();
+    u.deeds[ESTACIO_1] = { owner: 'pere', buildings: 0, mortgaged: true };
+    u = applyAction(u, 'anna', { type: 'roll-dice', dice: [2, 3] });
+    expect(u.paymentRequests).toHaveLength(0);
+  });
+
+  it('en caure a l’Impost, se li demana per a la banca', () => {
+    let s = startedGame();
+    s = applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 3] });
+    expect(s.paymentRequests.at(-1)).toMatchObject({ creditor: 'bank', debtor: 'anna', amount: 200, reason: 'Impost' });
+  });
+
+  it('les partides d’abans dels peons també poden moure', () => {
+    const s = startedGame();
+    delete s.positions;
+    delete s.pawns;
+    const next = applyAction(s, 'anna', { type: 'roll-dice', dice: [1, 2] });
+    expect(next.positions!.anna).toBe(3);
+    expect(next.pawns!.anna).toBeTruthy();
   });
 });

@@ -1,11 +1,15 @@
-// Bitllets: cada jugador té una cartera amb bitllets concrets. Quan paga, l'app tria
-// els bitllets i, si no té l'import just, la banca li fa el canvi automàticament.
+// Bitllets: cada jugador i la banca tenen bitllets concrets i comptats, com al Monopoly de
+// cartró. Quan qui paga no té l'import just, canvia bitllets amb la banca, que només pot
+// donar els bitllets que li queden.
 
 export const DENOMINATIONS = [500, 100, 50, 20, 10, 5, 1] as const;
 export type Denomination = (typeof DENOMINATIONS)[number];
 export type Wallet = Record<Denomination, number>;
 
 export const emptyWallet = (): Wallet => ({ 500: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 1: 0 });
+
+/** Bitllets de la caixa del Monopoly clàssic: 30 de cada (20.580 en total). */
+export const bankStartingWallet = (): Wallet => ({ 500: 30, 100: 30, 50: 30, 20: 30, 10: 30, 5: 30, 1: 30 });
 
 /** Repartiment inicial clàssic de 1.500: 2×500, 2×100, 2×50, 6×20, 5×10, 5×5, 5×1. */
 export const startingWallet = (): Wallet => ({ 500: 2, 100: 2, 50: 2, 20: 6, 10: 5, 5: 5, 1: 5 });
@@ -18,101 +22,6 @@ export function addWallets(a: Wallet, b: Wallet): Wallet {
   const out = emptyWallet();
   for (const d of DENOMINATIONS) out[d] = a[d] + b[d];
   return out;
-}
-
-/** El que dona la banca: el mínim de bitllets per a l'import. */
-export function bankBills(amount: number): Wallet {
-  assertAmount(amount);
-  const out = emptyWallet();
-  let rest = amount;
-  for (const d of DENOMINATIONS) {
-    out[d] = Math.floor(rest / d);
-    rest -= out[d] * d;
-  }
-  return out;
-}
-
-/**
- * Busca bitllets de la cartera que sumin exactament `amount`, fent servir primer els
- * més grans. Retorna null si no hi ha cap combinació exacta.
- */
-function exactBills(wallet: Wallet, amount: number): Wallet | null {
-  // best[s] = combinació amb menys bitllets que suma s, construïda denominació a denominació.
-  let best: (Wallet | null)[] = Array.from({ length: amount + 1 }, () => null);
-  best[0] = emptyWallet();
-  for (const d of DENOMINATIONS) {
-    const next = best.slice();
-    for (let s = 0; s <= amount; s++) {
-      const base = best[s];
-      if (!base) continue;
-      for (let k = 1; k <= wallet[d] && s + k * d <= amount; k++) {
-        const target = s + k * d;
-        const candidate = { ...base, [d]: k } as Wallet;
-        const current = next[target];
-        if (!current || billCount(candidate) < billCount(current)) next[target] = candidate;
-      }
-    }
-    best = next;
-  }
-  return best[amount] ?? null;
-}
-
-function billCount(wallet: Wallet): number {
-  return DENOMINATIONS.reduce((n, d) => n + wallet[d], 0);
-}
-
-/** La banca canvia un bitllet per bitllets de les denominacions immediatament inferiors. */
-function breakBill(wallet: Wallet, bill: Denomination): Wallet {
-  const smaller = DENOMINATIONS.filter((d) => d < bill);
-  const change = emptyWallet();
-  let rest: number = bill;
-  // Primer intentem donar-lo en bitllets de la denominació següent (un 100 → 2×50), que és com ho fa un banquer.
-  for (const d of smaller) {
-    change[d] = Math.floor(rest / d);
-    rest -= change[d] * d;
-  }
-  return addWallets({ ...wallet, [bill]: wallet[bill] - 1 }, change);
-}
-
-export interface PaymentPlan {
-  /** Cartera del pagador després de pagar (incloent-hi el canvi de la banca). */
-  remaining: Wallet;
-  /** Bitllets que surten de la cartera i arriben a qui cobra. Sumen exactament l'import. */
-  given: Wallet;
-  /** Bitllets que la banca ha hagut de trencar per poder pagar l'import just. */
-  broken: Denomination[];
-  /**
-   * Canvi amb la banca, si n'hi ha hagut: qui paga dona `toBank` a la banca i rep `fromBank`.
-   * Qui cobra no torna mai bitllets; sempre rep l'import just.
-   */
-  exchange: { toBank: Wallet; fromBank: Wallet } | null;
-}
-
-/** Decideix amb quins bitllets es paga `amount`, demanant canvi a la banca si cal. */
-export function planPayment(wallet: Wallet, amount: number): PaymentPlan {
-  assertAmount(amount);
-  if (walletTotal(wallet) < amount) {
-    throw new InsufficientFundsError(amount, walletTotal(wallet));
-  }
-  let current = { ...wallet };
-  const broken: Denomination[] = [];
-  for (;;) {
-    const given = exactBills(current, amount);
-    if (given) {
-      const remaining = emptyWallet();
-      for (const d of DENOMINATIONS) remaining[d] = current[d] - given[d];
-      return { remaining, given, broken, exchange: netExchange(wallet, current) };
-    }
-    // Sense import just: trenquem el bitllet més petit que cobreixi l'import, o si no n'hi ha cap,
-    // el bitllet més petit que es pugui trencar. Sempre acaba perquè el total no canvia i
-    // els bitllets es fan cada cop més petits.
-    const owned = DENOMINATIONS.filter((d) => current[d] > 0 && d > 1);
-    const covering = owned.filter((d) => d >= amount);
-    const toBreak = covering.length ? covering[covering.length - 1] : owned[owned.length - 1];
-    if (toBreak === undefined) throw new Error('No es pot fer el canvi');
-    current = breakBill(current, toBreak);
-    broken.push(toBreak);
-  }
 }
 
 /** Completa una selecció parcial de bitllets (p. ex. { 100: 2 }) amb zeros. */
@@ -138,15 +47,132 @@ export function subtractWallets(a: Wallet, b: Wallet): Wallet {
   return out;
 }
 
-function netExchange(before: Wallet, after: Wallet): PaymentPlan['exchange'] {
-  const toBank = emptyWallet();
-  const fromBank = emptyWallet();
+function billCount(wallet: Wallet): number {
+  return DENOMINATIONS.reduce((n, d) => n + wallet[d], 0);
+}
+
+/**
+ * Busca bitllets de la cartera que sumin exactament `amount`, amb el mínim de bitllets.
+ * Retorna null si no hi ha cap combinació exacta.
+ */
+export function exactBills(wallet: Wallet, amount: number): Wallet | null {
+  assertAmount(amount);
+  // best[s] = combinació amb menys bitllets que suma s, construïda denominació a denominació.
+  let best: (Wallet | null)[] = Array.from({ length: amount + 1 }, () => null);
+  best[0] = emptyWallet();
   for (const d of DENOMINATIONS) {
-    const diff = after[d] - before[d];
-    if (diff > 0) fromBank[d] = diff;
-    else toBank[d] = -diff;
+    const next = best.slice();
+    for (let s = 0; s <= amount; s++) {
+      const base = best[s];
+      if (!base) continue;
+      for (let k = 1; k <= wallet[d] && s + k * d <= amount; k++) {
+        const target = s + k * d;
+        const candidate = { ...base, [d]: k } as Wallet;
+        const current = next[target];
+        if (!current || billCount(candidate) < billCount(current)) next[target] = candidate;
+      }
+    }
+    best = next;
   }
-  return walletTotal(toBank) === 0 ? null : { toBank, fromBank };
+  return best[amount] ?? null;
+}
+
+/** La banca paga `amount` amb els bitllets que té. */
+export function payFromBank(bank: Wallet, amount: number): { bank: Wallet; given: Wallet } {
+  const given = exactBills(bank, amount);
+  if (!given) throw new BankShortError(amount);
+  return { bank: subtractWallets(bank, given), given };
+}
+
+/**
+ * Reparteix els diners inicials amb els bitllets de la banca, igual per a tothom. Si d'algun
+ * bitllet petit no n'hi ha prou per a tothom (p. ex. 6 bitllets de 20 per a 8 jugadors), se'n
+ * donen menys i la diferència va en bitllets més grans.
+ */
+export function dealStartingMoney(bank: Wallet, players: number): { bank: Wallet; wallets: Wallet[] } {
+  const wanted = startingWallet();
+  const wallet = emptyWallet();
+  const share = (d: Denomination) => Math.floor(bank[d] / players);
+  let rest = walletTotal(wanted);
+  // Dels bitllets petits als grans. Després de cada denominació, el que queda s'ha de poder
+  // pagar amb les següents: múltiple de 5 després de l'1, de 10 després del 5 i del 10,
+  // de 50 després del 20 i de 100 després del 50.
+  const steps: [Denomination, number][] = [
+    [1, 5],
+    [5, 10],
+    [10, 10],
+    [20, 50],
+    [50, 100],
+  ];
+  for (const [d, modulus] of steps) {
+    let k = Math.min(wanted[d], share(d));
+    while (k >= 0 && (rest - k * d) % modulus !== 0) k--;
+    if (k < 0) throw new BankShortError(rest);
+    wallet[d] = k;
+    rest -= k * d;
+  }
+  wallet[500] = Math.min(share(500), Math.floor(rest / 500));
+  rest -= wallet[500] * 500;
+  wallet[100] = rest / 100;
+  if (wallet[100] > share(100)) throw new BankShortError(rest);
+
+  let current = bank;
+  const wallets: Wallet[] = [];
+  for (let i = 0; i < players; i++) {
+    current = subtractWallets(current, wallet);
+    wallets.push({ ...wallet });
+  }
+  return { bank: current, wallets };
+}
+
+export interface Settlement {
+  payer: Wallet;
+  bank: Wallet;
+  /** Bitllets que rep qui cobra. Si cobra un jugador sumen l'import just; si cobra la banca, són els que s'han entregat. */
+  given: Wallet;
+  /**
+   * Canvi amb la banca, si n'hi ha hagut: qui paga dona `toBank` a la banca i rep `fromBank`
+   * (que inclou els bitllets que després passa a qui cobra). Qui cobra no torna mai canvi.
+   */
+  exchange: { toBank: Wallet; fromBank: Wallet } | null;
+}
+
+/**
+ * Decideix amb quins bitllets es paga `amount`. Si no hi ha l'import just, qui paga dona a la
+ * banca el mínim que el cobreixi i la banca li torna el canvi, sempre amb els bitllets que té.
+ */
+export function settlePayment(payer: Wallet, bank: Wallet, amount: number, toBank: boolean): Settlement {
+  assertAmount(amount);
+  const total = walletTotal(payer);
+  if (total < amount) throw new InsufficientFundsError(amount, total);
+
+  const exact = exactBills(payer, amount);
+  if (exact) {
+    return {
+      payer: subtractWallets(payer, exact),
+      bank: toBank ? addWallets(bank, exact) : bank,
+      given: exact,
+      exchange: null,
+    };
+  }
+
+  for (let paid = amount + 1; paid <= total; paid++) {
+    const handed = exactBills(payer, paid);
+    if (!handed) continue;
+    const pool = addWallets(bank, handed);
+    // Si cobra un jugador, la banca li ha de poder donar l'import just; si cobra la banca, se'l queda.
+    const toCreditor = toBank ? emptyWallet() : exactBills(pool, amount);
+    if (!toCreditor) continue;
+    const change = exactBills(subtractWallets(pool, toCreditor), paid - amount);
+    if (!change) continue;
+    return {
+      payer: addWallets(subtractWallets(payer, handed), change),
+      bank: subtractWallets(subtractWallets(pool, toCreditor), change),
+      given: toBank ? handed : toCreditor,
+      exchange: { toBank: handed, fromBank: addWallets(change, toCreditor) },
+    };
+  }
+  throw new BankShortError(amount);
 }
 
 export class InsufficientFundsError extends Error {
@@ -156,6 +182,13 @@ export class InsufficientFundsError extends Error {
   ) {
     super(`Calen ${needed} i només n'hi ha ${available}`);
     this.name = 'InsufficientFundsError';
+  }
+}
+
+export class BankShortError extends Error {
+  constructor(readonly amount: number) {
+    super(`La banca no té bitllets per fer aquest pagament de ${amount}`);
+    this.name = 'BankShortError';
   }
 }
 

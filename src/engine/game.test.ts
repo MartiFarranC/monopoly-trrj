@@ -173,3 +173,26 @@ describe('diners', () => {
     expect(() => applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 2000, reason: 'Bizum' })).toThrow(/prou diners/);
   });
 });
+
+describe('bitllets comptats de la banca', () => {
+  it('els diners totals de la partida no canvien', () => {
+    let s = startedGame();
+    s = run(s, [
+      ['anna', { type: 'pass-go' }],
+      ['anna', { type: 'pay', to: 'pere', amount: 37, reason: 'x' }],
+      ['marti', { type: 'request', kind: 'buy', square: 39 }],
+      ['pere', { type: 'exchange-bills', give: { 500: 1 }, receive: { 100: 5 } }],
+    ]);
+    const total = ['anna', 'marti', 'pere'].reduce((n, p) => n + balanceOf(s, p), 0);
+    const bankTotal = Object.entries(s.bank).reduce((n, [d, c]) => n + Number(d) * c, 0);
+    expect(total + bankTotal).toBe(20580);
+  });
+
+  it('no es pot demanar a la banca un bitllet que no té', () => {
+    let s = startedGame();
+    s = { ...s, bank: { ...s.bank, 50: 0 } };
+    expect(() => applyAction(s, 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 2 } })).toThrow(
+      /banca no té/,
+    );
+  });
+});

@@ -4,10 +4,11 @@
 import { GO_SALARY, MAX_PLAYERS, MIN_PLAYERS, getOwnable, getSquare, mortgageValue, unmortgageCost } from '../data/board';
 import {
   addWallets,
-  bankBills,
+  bankStartingWallet,
+  dealStartingMoney,
   hasBills,
-  planPayment,
-  startingWallet,
+  payFromBank,
+  settlePayment,
   subtractWallets,
   toWallet,
   walletTotal,
@@ -77,6 +78,8 @@ export interface GameState {
   turnOrder: PlayerId[];
   currentTurn: number;
   wallets: Record<PlayerId, Wallet>;
+  /** Bitllets que queden a la banca. No són infinits: com a la caixa del joc, n'hi ha 30 de cada. */
+  bank: Wallet;
   deeds: Deeds;
   requests: MasterRequest[];
   paymentRequests: PaymentRequest[];
@@ -121,6 +124,7 @@ export function createGame(master: PlayerId, players: PlayerId[]): GameState {
     turnOrder: [],
     currentTurn: 0,
     wallets: {},
+    bank: bankStartingWallet(),
     deeds: {},
     requests: [],
     paymentRequests: [],
@@ -156,7 +160,9 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
     let bills: Wallet;
     let exchange: Transaction['exchange'];
     if (from === BANK) {
-      bills = bankBills(amount);
+      const paid = payFromBank(state.bank, amount);
+      state.bank = paid.bank;
+      bills = paid.given;
     } else if (chosen) {
       // El jugador tria els bitllets. Han de sumar l'import just: qui cobra no torna mai canvi,
       // així que si no el té, primer ha de canviar a la banca.
@@ -166,12 +172,14 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
         throw new RuleError(`Els bitllets sumen ${walletTotal(bills)} i cal pagar ${amount}. Demana canvi a la banca.`);
       }
       state.wallets[from] = subtractWallets(state.wallets[from]!, bills);
+      if (to === BANK) state.bank = addWallets(state.bank, bills);
     } else {
       // Si no té l'import just, qui paga canvia bitllets amb la banca; qui cobra mai torna canvi.
-      const plan = planPayment(state.wallets[from]!, amount);
-      state.wallets[from] = plan.remaining;
-      bills = plan.given;
-      exchange = plan.exchange ?? undefined;
+      const settled = settlePayment(state.wallets[from]!, state.bank, amount, to === BANK);
+      state.wallets[from] = settled.payer;
+      state.bank = settled.bank;
+      bills = settled.given;
+      exchange = settled.exchange ?? undefined;
     }
     if (to !== BANK) state.wallets[to] = addWallets(state.wallets[to]!, bills);
     state.transactions.push({ id: nextId(), from, to, amount, reason, bills, ...(exchange && { exchange }) });
@@ -258,7 +266,9 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       }
       state.turnOrder = [...action.order];
       state.status = 'playing';
-      for (const p of state.turnOrder) state.wallets[p] = startingWallet();
+      const dealt = dealStartingMoney(state.bank, state.turnOrder.length);
+      state.bank = dealt.bank;
+      state.turnOrder.forEach((p, i) => (state.wallets[p] = dealt.wallets[i]!));
       break;
     }
     case 'roll-dice': {
@@ -348,7 +358,9 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       if (walletTotal(give) === 0) throw new RuleError('Tria quins bitllets vols canviar');
       if (walletTotal(give) !== walletTotal(receive)) throw new RuleError('El canvi ha de sumar el mateix');
       if (!hasBills(state.wallets[actor]!, give)) throw new RuleError('No tens aquests bitllets');
+      if (!hasBills(addWallets(state.bank, give), receive)) throw new RuleError('La banca no té aquests bitllets');
       state.wallets[actor] = addWallets(subtractWallets(state.wallets[actor]!, give), receive);
+      state.bank = subtractWallets(addWallets(state.bank, give), receive);
       state.transactions.push({
         id: nextId(),
         from: actor,

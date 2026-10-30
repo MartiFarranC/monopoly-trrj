@@ -94,7 +94,7 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 .hb .lab{position:absolute;left:-6px;top:-10px;z-index:2;font-size:11px;font-weight:800;min-width:30px;height:19px;padding:0 5px;border-radius:10px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;transition:transform .2s,background .2s}
 .hb.hit .lab{background:var(--ok);transform:scale(1.3)}
 
-.toast{position:absolute;left:14px;right:14px;bottom:118px;z-index:450;background:var(--ink);color:#fff;border-radius:14px;padding:11px 14px;display:flex;gap:12px;align-items:center;pointer-events:none;animation:toast .4s cubic-bezier(.3,1.3,.5,1)}
+.toast{position:absolute;left:14px;right:14px;bottom:146px;z-index:450;background:var(--ink);color:#fff;border-radius:14px;padding:11px 14px;display:flex;gap:12px;align-items:center;pointer-events:none;animation:toast .4s cubic-bezier(.3,1.3,.5,1)}
 @keyframes toast{from{transform:translateY(14px);opacity:0}}
 .toast .ic{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 .toast b{display:block;font-size:14px}
@@ -208,3 +208,20 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 .chatin input{flex:1;min-width:0;height:40px;border:1.5px solid var(--ink);border-radius:10px;padding:0 10px;font:inherit;font-size:14px}
 .chatin button{height:40px;border:1.5px solid var(--ink);border-radius:10px;background:var(--ink);color:#fff;font-weight:700;padding:0 12px}
 .empty-table{position:absolute;left:30px;right:30px;top:44%;text-align:center;font-size:13px;color:var(--muted);z-index:2;pointer-events:none}
+
+/* ---------- diners, torn i avisos destacats ---------- */
+.bal{pointer-events:auto;cursor:pointer}
+.midrow{display:flex;gap:6px;pointer-events:auto}
+.sort.endturn{background:var(--red);color:#fff;padding:0 13px;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 3px 0 rgba(0,0,0,.18),0 0 0 6px rgba(213,43,30,.18)}}
+.turn.mine{background:#FFF1A8}
+.wallet{position:absolute;left:4px;right:4px;bottom:112px;z-index:190;display:flex;justify-content:center;gap:3px;pointer-events:none}
+.wallet span{display:inline-flex;align-items:center;gap:2px;background:var(--bc);border:1.2px solid rgba(0,0,0,.45);border-radius:6px;padding:2px 4px;font-size:10.5px;white-space:nowrap;font-weight:600;color:var(--ink);box-shadow:0 2px 0 rgba(0,0,0,.12)}
+.wallet span b{font-weight:800}
+.wallet span.none{opacity:.35}
+.note.urgent{border:2.5px solid var(--red);background:#FFF3F1;animation:toast .4s cubic-bezier(.3,1.3,.5,1),shake .5s .4s 2}
+.note.urgent small{display:block;font-size:10px;letter-spacing:1px;font-weight:800;color:var(--red)}
+.note.urgent b{font-size:17px}
+@keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.midrow .sort{white-space:nowrap}
+@media (max-width:380px){.midrow .sort{padding:0 9px;font-size:12px;gap:5px}}

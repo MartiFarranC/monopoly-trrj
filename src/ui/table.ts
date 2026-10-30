@@ -113,6 +113,8 @@ export class TableScreen implements Screen {
   private rolling = false;
   private chatSeen = '';
   private reqStatus = new Map<string, string>();
+  private knownPayReqs = new Set<string>();
+  private lastTurn = '';
   private offerStatus = new Map<string, string>();
   private handEls: Record<string, HTMLButtonElement> = {};
   private pcEls: Record<string, HTMLDivElement> = {};
@@ -139,6 +141,8 @@ export class TableScreen implements Screen {
     this.chatSeen = state.chat.at(-1)?.id ?? '';
     state.requests.forEach((r) => this.reqStatus.set(r.id, r.status));
     state.exchangeOffers.forEach((o) => this.offerStatus.set(o.id, o.status));
+    state.paymentRequests.forEach((r) => this.knownPayReqs.add(r.id));
+    this.lastTurn = currentPlayer(state) ?? '';
     this.bind();
     window.addEventListener('resize', this.onResize);
     requestAnimationFrame(() => {
@@ -162,8 +166,10 @@ export class TableScreen implements Screen {
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="#151515" stroke-width="2"/><circle cx="8" cy="8" r="1.7" fill="#151515"/><circle cx="16" cy="8" r="1.7" fill="#151515"/><circle cx="12" cy="12" r="1.7" fill="#151515"/><circle cx="8" cy="16" r="1.7" fill="#151515"/><circle cx="16" cy="16" r="1.7" fill="#151515"/></svg></button>
     <button class="btn" data-a="chat" aria-label="Xat" style="left:14px;top:calc(72px + env(safe-area-inset-top,0px))">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#151515" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-5 4.5V16H6.5"/></svg><span class="badge" id="chatBadge" hidden></span></button>
-    <div class="mid" style="top:calc(14px + env(safe-area-inset-top,0px))"><button class="turn" data-a="turn" id="turn"></button><div class="bal"><span id="total"></span><small>€</small></div>
-      <button class="sort" data-a="sort"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="4" height="5" rx="1" fill="#5B3726"/><rect x="6" y="2" width="4" height="5" rx="1" fill="#2E9DE6"/><rect x="11" y="2" width="4" height="5" rx="1" fill="#E24FC2"/><rect x="1" y="9" width="4" height="5" rx="1" fill="#E8672C"/><rect x="6" y="9" width="4" height="5" rx="1" fill="#2F9A2F"/><rect x="11" y="9" width="4" height="5" rx="1" fill="#2341E0"/></svg>Ordenar</button></div>
+    <div class="mid" style="top:calc(14px + env(safe-area-inset-top,0px))"><button class="turn" data-a="turn" id="turn"></button>
+      <div class="bal" data-a="money" role="button" aria-label="Els teus diners"><span id="total"></span><small>€</small></div>
+      <div class="midrow"><button class="sort" data-a="sort"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="2" width="4" height="5" rx="1" fill="#5B3726"/><rect x="6" y="2" width="4" height="5" rx="1" fill="#2E9DE6"/><rect x="11" y="2" width="4" height="5" rx="1" fill="#E24FC2"/><rect x="1" y="9" width="4" height="5" rx="1" fill="#E8672C"/><rect x="6" y="9" width="4" height="5" rx="1" fill="#2F9A2F"/><rect x="11" y="9" width="4" height="5" rx="1" fill="#2341E0"/></svg>Ordenar</button><button class="sort endturn" data-a="endTurn" id="endTurn" hidden>Acabar el torn</button></div></div>
+    <div class="wallet" id="wallet" aria-hidden="true"></div>
     <button class="btn" data-a="profile" aria-label="Perfil" style="right:14px;top:calc(16px + env(safe-area-inset-top,0px));border-radius:50%;background:${u.color};color:#fff;font-size:17px;font-weight:700">${esc(u.name.slice(0, 1))}</button>
     <button class="btn" id="menuBtn" data-a="menu" aria-label="Menú" aria-expanded="false" style="right:14px;top:calc(72px + env(safe-area-inset-top,0px))">
       <svg width="20" height="20" viewBox="0 0 20 20" stroke="#151515" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg><span class="badge" id="menuBadge" hidden></span></button>
@@ -269,6 +275,21 @@ export class TableScreen implements Screen {
       if (o.status === 'accepted') this.toast('ok', `${userById(o.to).name} ha acceptat el canvi`, `${billsTxt(expand(o.give))} per ${billsTxt(expand(o.receive))}.`, 3500);
       else if (o.status === 'rejected') this.toast('info', `${userById(o.to).name} no vol fer el canvi`, 'Prova-ho amb la banca o amb algú altre.', 3500);
     });
+
+    // Avisos forts: et toca pagar, o et toca tirar.
+    const newDebts = state.paymentRequests.filter((r) => r.debtor === this.me && r.status === 'pending' && !this.knownPayReqs.has(r.id));
+    state.paymentRequests.forEach((r) => this.knownPayReqs.add(r.id));
+    const turn = currentPlayer(state) ?? '';
+    const myTurnNow = !first && turn === this.me && this.lastTurn !== this.me;
+    this.lastTurn = turn;
+    if (!first && newDebts.length) {
+      const r = newDebts[newDebts.length - 1]!;
+      buzz([200, 100, 200]);
+      this.toast('info', `Has de pagar ${fmt(r.amount)}€ a ${nameOf(r.creditor)}`, 'Toca «Pagar» a l\u2019avís de dalt.', 5000);
+    } else if (myTurnNow) {
+      buzz([120]);
+      this.toast('ok', 'És el teu torn!', 'Tira els daus. Quan acabis, toca «Acabar el torn».', 4500);
+    }
 
     this.syncStacks(first);
     if (this.pay && this.pay.given.some((v) => this.handCount(v) < 0)) this.pay.given = [];
@@ -381,6 +402,15 @@ export class TableScreen implements Screen {
       }
     });
     this.$('#total').textContent = fmt(walletTotal(this.wallet));
+    this.drawWallet();
+  }
+
+  /** Recompte de bitllets per tipus, sempre visible a sobre del ventall. */
+  private drawWallet() {
+    this.$('#wallet').innerHTML = VALS.map((v) => {
+      const n = this.wallet[v];
+      return `<span class="${n ? '' : 'none'}" style="--bc:${COL[v]}"><b>${v}€</b>×${n}</span>`;
+    }).join('');
   }
 
   private pieceEl(key: string, html: string, model: { thrown?: boolean }) {
@@ -440,6 +470,8 @@ export class TableScreen implements Screen {
     const d = this.st.lastDice;
     const dice = d ? `<span class="dicechip">${d[0]}+${d[1]} = ${d[0] + d[1]}</span>` : '';
     this.$('#turn').innerHTML = `${avatar(cur)}${cur === this.me ? 'El teu torn' : 'Torn de ' + esc(userById(cur).name)}${dice}`;
+    this.$('#turn').classList.toggle('mine', cur === this.me);
+    this.$('#endTurn').hidden = cur !== this.me;
     const unread = this.st.chat.filter((m) => m.author !== this.me);
     const idx = unread.findIndex((m) => m.id === this.chatSeen);
     const n = this.overlay === 'chat' ? 0 : this.chatSeen ? unread.length - 1 - idx : unread.length;
@@ -465,7 +497,7 @@ export class TableScreen implements Screen {
         .forEach((r) => {
           const who = r.creditor === BANK ? 'La banca' : userById(r.creditor).name;
           const what = r.auction ? `Has guanyat la subhasta de ${getOwnable(r.square!).name}` : r.square !== undefined ? `Lloguer de ${getOwnable(r.square).name}` : 'Et demana diners';
-          notes.push(`<div class="note">${r.creditor === BANK ? '<span class="av" style="background:#F2A65A;color:#151515">€</span>' : avatar(r.creditor)}<div><b>${esc(who)} et demana ${fmt(r.amount)}€</b><span>${esc(what)}</span></div>
+          notes.push(`<div class="note urgent">${r.creditor === BANK ? '<span class="av" style="background:#F2A65A;color:#151515">€</span>' : avatar(r.creditor)}<div><small>HAS DE PAGAR</small><b>${fmt(r.amount)}€ a ${esc(r.creditor === BANK ? 'la banca' : who)}</b><span>${esc(what)}</span></div>
             <button class="pill red" data-a="payReq" data-v="${r.id}">Pagar</button></div>`);
         });
       st.exchangeOffers
@@ -1026,6 +1058,19 @@ export class TableScreen implements Screen {
     });
   }
 
+  private moneyPanel() {
+    this.showPanel({
+      on: {},
+      html: () => {
+        const w = this.wallet;
+        return `<div class="ph"><span class="av" style="background:#F2A65A;color:#151515">€</span><div><small>ELS TEUS DINERS</small><b>${fmt(walletTotal(w))}€</b></div></div>
+        <div class="list">${VALS.map((v) => `<div class="li" style="min-height:40px"><span class="sw" style="width:34px;height:20px;border-radius:3px;border:1.5px solid var(--ink);background:${COL[v]}"></span><span class="grow">${w[v]} ${w[v] === 1 ? 'bitllet' : 'bitllets'} de ${v}€</span><b>${fmt(w[v] * v)}€</b></div>`).join('')}</div>
+        ${this.loose.length ? `<p class="mode" style="text-align:left">${this.loose.length} d'aquests bitllets encara són a la taula: arrossega'ls al ventall.</p>` : ''}
+        <button class="pill" data-a="panelClose">Tancar</button>`;
+      },
+    });
+  }
+
   private profile() {
     const u = userById(this.me);
     this.showPanel({
@@ -1273,6 +1318,15 @@ export class TableScreen implements Screen {
       case 'turn':
         if (currentPlayer(st) === this.me && confirm('Vols passar el torn?')) void this.app.act({ type: 'end-turn' });
         return;
+      case 'endTurn':
+        this.closeMenu();
+        if (await this.app.act({ type: 'end-turn' })) {
+          const next = currentPlayer(this.st);
+          this.toast('ok', 'Has acabat el torn', next ? `Ara és el torn de ${userById(next).name}.` : '', 3000);
+        }
+        return;
+      case 'money':
+        return this.moneyPanel();
       case 'profile':
         return this.profile();
       case 'sort':
@@ -1413,6 +1467,15 @@ export class TableScreen implements Screen {
       case 'closeAuction':
         return void this.app.act({ type: 'close-auction' });
     }
+  }
+}
+
+/** Fa vibrar el mòbil si ho permet (a l'iPhone no fa res). */
+function buzz(pattern: number[]) {
+  try {
+    navigator.vibrate?.(pattern);
+  } catch {
+    // Sense vibració.
   }
 }
 

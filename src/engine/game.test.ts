@@ -140,6 +140,35 @@ describe('diners', () => {
     expect(balanceOf(s, 'anna')).toBe(495);
   });
 
+  it('el jugador tria els bitllets i demana canvi a la banca si no té l\u2019import just', () => {
+    let s = startedGame();
+    s = { ...s, wallets: { ...s.wallets, anna: { 500: 0, 100: 3, 50: 0, 20: 0, 10: 0, 5: 0, 1: 0 } } };
+    // Amb tres bitllets de 100 no pot pagar 250 just.
+    expect(() =>
+      applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 250, reason: 'Lloguer', bills: { 100: 3 } }),
+    ).toThrow(/canvi/);
+    s = applyAction(s, 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 2 } });
+    expect(s.wallets.anna).toMatchObject({ 100: 2, 50: 2 });
+    s = applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 250, reason: 'Lloguer', bills: { 100: 2, 50: 1 } });
+    expect(s.wallets.anna).toMatchObject({ 100: 0, 50: 1 });
+    expect(balanceOf(s, 'pere')).toBe(1750);
+  });
+
+  it('el canvi a la banca ha de sumar el mateix', () => {
+    expect(() =>
+      applyAction(startedGame(), 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 1 } }),
+    ).toThrow(/mateix/);
+  });
+
+  it('no es pot pagar amb bitllets que no tens', () => {
+    expect(() =>
+      applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 1000, reason: 'x', bills: { 500: 2 } }),
+    ).not.toThrow();
+    expect(() =>
+      applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 1500, reason: 'x', bills: { 500: 3 } }),
+    ).toThrow(/aquests bitllets/);
+  });
+
   it('no es pot pagar més del que es té', () => {
     expect(() => applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 2000, reason: 'Bizum' })).toThrow(/prou diners/);
   });

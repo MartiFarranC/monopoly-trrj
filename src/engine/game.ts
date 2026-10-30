@@ -2,7 +2,17 @@
 // El mateix codi el farà servir el servidor (per validar) i els mòbils (per mostrar l'estat).
 
 import { GO_SALARY, MAX_PLAYERS, MIN_PLAYERS, getOwnable, getSquare, mortgageValue, unmortgageCost } from '../data/board';
-import { planPayment, startingWallet, bankBills, addWallets, walletTotal, type Wallet } from './bills';
+import {
+  addWallets,
+  bankBills,
+  hasBills,
+  planPayment,
+  startingWallet,
+  subtractWallets,
+  toWallet,
+  walletTotal,
+  type Wallet,
+} from './bills';
 import {
   HOTEL,
   RuleError,
@@ -86,9 +96,12 @@ export type Action =
   | { type: 'resolve-request'; requestId: string; approve: boolean }
   | { type: 'request-payment'; debtor: PlayerId; square: number; diceTotal?: number }
   | { type: 'request-payment'; debtor: PlayerId; amount: number }
-  | { type: 'pay-request'; requestId: string }
+  /** `bills`: els bitllets que tria el jugador; han de sumar l'import just. Sense `bills`, els tria l'app. */
+  | { type: 'pay-request'; requestId: string; bills?: Partial<Wallet> }
   | { type: 'cancel-payment-request'; requestId: string }
-  | { type: 'pay'; to: Party; amount: number; reason: string }
+  | { type: 'pay'; to: Party; amount: number; reason: string; bills?: Partial<Wallet> }
+  /** Canviar bitllets a la banca, p. ex. un de 100 per dos de 50. */
+  | { type: 'exchange-bills'; give: Partial<Wallet>; receive: Partial<Wallet> }
   | { type: 'pass-go' }
   | { type: 'start-auction'; square: number }
   | { type: 'bid'; amount: number }
@@ -139,11 +152,20 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
     if (!state.turnOrder.includes(actor)) throw new RuleError('No jugues en aquesta partida');
   };
 
-  const transfer = (from: Party, to: Party, amount: number, reason: string) => {
+  const transfer = (from: Party, to: Party, amount: number, reason: string, chosen?: Partial<Wallet>) => {
     let bills: Wallet;
     let exchange: Transaction['exchange'];
     if (from === BANK) {
       bills = bankBills(amount);
+    } else if (chosen) {
+      // El jugador tria els bitllets. Han de sumar l'import just: qui cobra no torna mai canvi,
+      // així que si no el té, primer ha de canviar a la banca.
+      bills = toWallet(chosen);
+      if (!hasBills(state.wallets[from]!, bills)) throw new RuleError('No tens aquests bitllets');
+      if (walletTotal(bills) !== amount) {
+        throw new RuleError(`Els bitllets sumen ${walletTotal(bills)} i cal pagar ${amount}. Demana canvi a la banca.`);
+      }
+      state.wallets[from] = subtractWallets(state.wallets[from]!, bills);
     } else {
       // Si no té l'import just, qui paga canvia bitllets amb la banca; qui cobra mai torna canvi.
       const plan = planPayment(state.wallets[from]!, amount);
@@ -299,7 +321,7 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       if (req.debtor !== actor) throw new RuleError('Aquesta sol·licitud no és per a tu');
       requireFunds(actor, req.amount);
       const reason = req.square !== undefined ? `Lloguer de ${getSquare(req.square).name}` : 'Paga sol·licitada';
-      transfer(actor, req.creditor, req.amount, reason);
+      transfer(actor, req.creditor, req.amount, reason, action.bills);
       req.status = 'paid';
       break;
     }
@@ -316,7 +338,26 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       if (action.to === actor) throw new RuleError('No et pots pagar a tu mateix');
       if (action.to !== BANK && !state.turnOrder.includes(action.to)) throw new RuleError('Aquest jugador no és a la partida');
       requireFunds(actor, action.amount);
-      transfer(actor, action.to, action.amount, action.reason);
+      transfer(actor, action.to, action.amount, action.reason, action.bills);
+      break;
+    }
+    case 'exchange-bills': {
+      requirePlaying();
+      const give = toWallet(action.give);
+      const receive = toWallet(action.receive);
+      if (walletTotal(give) === 0) throw new RuleError('Tria quins bitllets vols canviar');
+      if (walletTotal(give) !== walletTotal(receive)) throw new RuleError('El canvi ha de sumar el mateix');
+      if (!hasBills(state.wallets[actor]!, give)) throw new RuleError('No tens aquests bitllets');
+      state.wallets[actor] = addWallets(subtractWallets(state.wallets[actor]!, give), receive);
+      state.transactions.push({
+        id: nextId(),
+        from: actor,
+        to: BANK,
+        amount: 0,
+        reason: 'Canvi a la banca',
+        bills: give,
+        exchange: { toBank: give, fromBank: receive },
+      });
       break;
     }
     case 'pass-go': {

@@ -115,6 +115,29 @@ export function planPayment(wallet: Wallet, amount: number): PaymentPlan {
   }
 }
 
+/** Completa una selecció parcial de bitllets (p. ex. { 100: 2 }) amb zeros. */
+export function toWallet(partial: Partial<Wallet>): Wallet {
+  const out = emptyWallet();
+  for (const d of DENOMINATIONS) {
+    const n = partial[d] ?? 0;
+    if (!Number.isInteger(n) || n < 0) throw new Error(`Quantitat de bitllets no vàlida: ${n}`);
+    out[d] = n;
+  }
+  return out;
+}
+
+/** Comprova que la cartera conté tots els bitllets de `selection`. */
+export function hasBills(wallet: Wallet, selection: Wallet): boolean {
+  return DENOMINATIONS.every((d) => wallet[d] >= selection[d]);
+}
+
+export function subtractWallets(a: Wallet, b: Wallet): Wallet {
+  if (!hasBills(a, b)) throw new Error('No tens aquests bitllets');
+  const out = emptyWallet();
+  for (const d of DENOMINATIONS) out[d] = a[d] - b[d];
+  return out;
+}
+
 function netExchange(before: Wallet, after: Wallet): PaymentPlan['exchange'] {
   const toBank = emptyWallet();
   const fromBank = emptyWallet();

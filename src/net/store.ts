@@ -22,15 +22,19 @@ export interface GameStore {
 }
 
 export function createStore(): GameStore {
-  return SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStore(createClient(SUPABASE_URL, SUPABASE_ANON_KEY)) : new LocalStore();
+  return SUPABASE_URL && SUPABASE_ANON_KEY
+    ? new SupabaseStore(createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: SCHEMA } }))
+    : new LocalStore();
 }
 
+/** Esquema propi dins el projecte de Supabase, separat de les taules d'altres webs. */
+const SCHEMA = 'tarrojapoly';
 const TABLE = 'partida';
 const ROW = 1;
 
 class SupabaseStore implements GameStore {
   readonly online = true;
-  constructor(private db: SupabaseClient) {}
+  constructor(private db: SupabaseClient<any, any, any>) {}
 
   async load(): Promise<Snapshot> {
     const { data, error } = await this.db.from(TABLE).select('state, version').eq('id', ROW).single();
@@ -40,8 +44,8 @@ class SupabaseStore implements GameStore {
 
   subscribe(cb: (snap: Snapshot) => void): () => void {
     const channel = this.db
-      .channel('partida')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: TABLE }, (payload) => {
+      .channel('tarrojapoly-partida')
+      .on('postgres_changes', { event: 'UPDATE', schema: SCHEMA, table: TABLE }, (payload) => {
         const row = payload.new as { state: GameState | null; version: number };
         cb({ state: row.state, version: row.version });
       })

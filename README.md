@@ -35,6 +35,8 @@ Cada canvi a `main` es publica sol a GitHub Pages amb l'acció `.github/workflow
 
 ## Supabase (perquè els mòbils juguin junts)
 
-1. Crea un projecte gratuït a supabase.com.
-2. Al projecte, obre **SQL Editor**, enganxa el contingut de `supabase/schema.sql` i executa'l.
-3. A **Project Settings → API**, copia la **Project URL** i la clau **anon public**, i posa-les a `src/config.ts`.
+Les taules van dins l'esquema propi `tarrojapoly`, així que es pot fer servir un projecte de Supabase que ja tingui altres webs sense barrejar res.
+
+1. Al projecte, obre **SQL Editor**, enganxa el contingut de `supabase/schema.sql` i executa'l.
+2. A **Project Settings → Data API** (o **API**), a «Exposed schemas», afegeix `tarrojapoly` i desa.
+3. Copia la **Project URL** i la clau **anon public**, i posa-les a `src/config.ts`.

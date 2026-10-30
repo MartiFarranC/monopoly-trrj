@@ -37,6 +37,8 @@ export class BoardStrip {
   /** Casella que es veu ara per a cada peó (durant l'animació no és la final). */
   private shown: Record<string, number> = {};
   private lastMoveId = '';
+  private lastTurn = '';
+  private backT = 0;
   private animating = new Set<string>();
   private st: GameState | null = null;
 
@@ -54,6 +56,14 @@ export class BoardStrip {
   ) {
     root.innerHTML = `<div class="track">${BOARD.map((s) => cell(s, undefined)).join('')}</div>`;
     this.track = root.querySelector('.track')!;
+    // Si algú mira el tauler amb el dit, al cap d'una estona torna sol al peó de qui té el torn.
+    const back = () => {
+      clearTimeout(this.backT);
+      this.backT = window.setTimeout(() => this.followTurn(), 4000);
+    };
+    root.addEventListener('touchend', back, { passive: true });
+    root.addEventListener('pointerup', back);
+    root.addEventListener('wheel', back, { passive: true });
   }
 
   update(st: GameState, first = false) {
@@ -101,7 +111,12 @@ export class BoardStrip {
       if (!this.animating.has(p)) this.shown[p] = positions[p] ?? 0;
     });
     this.place(st.turnOrder);
-    if (first) this.follow(positions[st.turnOrder[st.currentTurn]!] ?? 0, false);
+    // Quan canvia el torn, tots els mòbils van a buscar el peó de qui toca.
+    const turn = st.turnOrder[st.currentTurn] ?? '';
+    if (first || turn !== this.lastTurn) {
+      this.lastTurn = turn;
+      if (!this.moving) this.followTurn(!first);
+    }
   }
 
   private async animate(move: PawnMove, st: GameState) {
@@ -158,6 +173,12 @@ export class BoardStrip {
         el.style.zIndex = String(10 + row * 5 + k + (p === this.me ? 20 : 0));
       });
     });
+  }
+
+  private followTurn(smooth = true) {
+    if (this.moving || !this.st) return;
+    const turn = this.st.turnOrder[this.st.currentTurn];
+    if (turn) this.follow(this.shown[turn] ?? 0, smooth);
   }
 
   private follow(i: number, smooth = true) {

@@ -22,6 +22,8 @@ const HW = 74;
 const HH = 155;
 const HR = 175;
 const SPAN = 46;
+/** Quan pagues, el ventall s'obre més perquè es vegin bé tots els bitllets. */
+const SPAN_PAYING = 48;
 const DY_CARD = 26;
 const TOP = 136;
 
@@ -344,11 +346,14 @@ export class TableScreen implements Screen {
     const GAP = 3.4;
     const counts = VALS.map((v) => Math.max(this.handCount(v), 1));
     const units = counts.reduce((a, n) => a + n, 0) - 1 + GAP * (VALS.length - 1);
-    const step = Math.min(4, SPAN / units);
+    const paying = !!this.pay;
+    const step = Math.min(paying ? 4.5 : 4, (paying ? SPAN_PAYING : SPAN) / units);
     let a0 = (-step * units) / 2;
     let z = 0;
     this.GA = [];
     const hand = this.$('#hand');
+    hand.classList.toggle('paying', paying);
+    this.$('#wallet').hidden = paying;
     VALS.forEach((v, g) => {
       const n = this.handCount(v);
       const open = this.open === v;

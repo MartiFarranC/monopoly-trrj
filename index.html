@@ -109,7 +109,8 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 .toast span{font-size:12.5px;opacity:.8}
 
 /* paying: bills tapped from the hand go into the tray */
-.paybox{position:absolute;left:14px;right:14px;top:128px;z-index:460;background:var(--paper);border:1.5px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 rgba(0,0,0,.18),0 18px 40px rgba(0,0,0,.18);padding:14px;display:flex;flex-direction:column;gap:10px;animation:menu .25s cubic-bezier(.3,1.4,.5,1);transform-origin:top center}
+.paybox{position:absolute;left:14px;right:14px;top:128px;z-index:460;background:var(--paper);border:1.5px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 rgba(0,0,0,.18),0 18px 40px rgba(0,0,0,.18);padding:14px;display:flex;flex-direction:column;gap:10px;transform-origin:top center}
+.paybox.enter{animation:menu .25s cubic-bezier(.3,1.4,.5,1)}
 .ph{display:flex;align-items:center;gap:10px}
 .ph .av{width:38px;height:38px;border-radius:50%;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--ink)}
 .ph small{display:block;font-size:10.5px;letter-spacing:.8px;color:var(--muted);font-weight:600}
@@ -121,6 +122,10 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 .seg{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid var(--ink);border-radius:10px;overflow:hidden}
 .seg button{height:36px;border:0;background:#fff;font-size:13.5px;font-weight:700}
 .seg .on{background:var(--ink);color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chips span{font-size:12px;font-weight:700;color:var(--muted);width:30px}
+.chips button{height:32px;border:1.5px solid var(--ink);border-radius:16px;background:#fff;padding:0 10px;font-size:12.5px;font-weight:700}
+.chips .on{background:var(--ink);color:#fff}
 .bank{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:11px;color:var(--muted)}
 .bank span{font-weight:700;margin-right:2px}
 .bank i{font-style:normal;background:var(--bc);border:1px solid rgba(0,0,0,.35);border-radius:4px;padding:1px 5px;color:var(--ink);font-weight:600}
@@ -151,7 +156,7 @@ button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 </head>
 <body>
 <div class="shell">
-  <div class="cap">Arrossega els bitllets que t'han pagat fins a la teva mà. Toca un grup de bitllets per treure'ls i comptar-los. «Ordenar» posa les cartes per colors. El menú és sota la teva foto.</div>
+  <div class="cap">Arrossega els bitllets que t'han pagat fins al ventall i es posen sols al seu lloc. Toca un grup de bitllets per treure'ls i comptar-los. «Ordenar» posa les cartes per colors. El menú és sota la teva foto.</div>
   <main class="app" id="app">
     <button class="btn" data-a="roll" aria-label="Tirar els daus" style="left:14px;top:16px">
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" fill="none" stroke="#151515" stroke-width="2"/><circle cx="8" cy="8" r="1.7" fill="#151515"/><circle cx="16" cy="8" r="1.7" fill="#151515"/><circle cx="12" cy="12" r="1.7" fill="#151515"/><circle cx="8" cy="16" r="1.7" fill="#151515"/><circle cx="16" cy="16" r="1.7" fill="#151515"/></svg></button>
@@ -305,21 +310,9 @@ function throwBills(parts) {
     x: Math.round(W / 2 - BW / 2 + (k - (n - 1) / 2) * gap + rnd(6)), y: Math.round(H * .44 + rnd(18)) }));
   drawPieces();
 }
-/* bills that add up to n using only what's in stock, biggest first; null if the stock can't make it */
-function pick(n, stock, i = 0) {
-  if (n === 0) return [];
-  for (let j = i; j < VALS.length; j++) {
-    const v = VALS[j];
-    if (v <= n && stock[v] > 0) {
-      stock[v]--; const rest = pick(n - v, stock, j); stock[v]++;
-      if (rest) return [v].concat(rest);
-    }
-  }
-  return null;
-}
 function getPaid() {
   throwBills([50, 20, 20]);
-  toast('pay', 'La Laia t\'ha pagat 90€', 'Arrossega cada bitllet a la teva mà.');
+  toast('pay', 'La Laia t\'ha pagat 90€', 'Arrossega els bitllets al ventall i es posen sols al seu lloc.');
 }
 function throwCard() {
   if (S.cardThrown) return; S.cardThrown = true;
@@ -344,7 +337,7 @@ function sortCards() {
 }
 
 /* ---------- paying: tap bills from the hand; any change comes back from the bank ---------- */
-/* ways the bank can break each bill, tried in order until its stock allows one */
+/* ways to break each bill into smaller ones, tried in order until the other side's stock allows one */
 const CHANGE = {
   500: [[100, 100, 100, 100, 100], [50, 50, 50, 50, 50, 50, 50, 50, 50, 50]],
   100: [[50, 50], [20, 20, 20, 20, 20], [50, 20, 20, 10]],
@@ -354,47 +347,68 @@ const CHANGE = {
   5: [[1, 1, 1, 1, 1]]
 };
 const has = (stock, bills) => VALS.every(v => bills.filter(x => x === v).length <= stock[v]);
-/* overpaying: the bank takes your bills, pays the exact amount and returns the change, all from its stock */
-function bankSettle(given, amt) {
-  const stock = { ...S.bank }; given.forEach(v => stock[v]++);
-  const toPayee = pick(amt, stock); if (!toPayee) return null;
-  toPayee.forEach(v => stock[v]--);
-  const back = pick(given.reduce((a, v) => a + v, 0) - amt, stock); if (!back) return null;
-  back.forEach(v => stock[v]--);
-  return { stock, back };
-}
-const bankRow = () => `<div class="bank"><span>La banca té</span>${VALS.map(v => `<i style="--bc:${COL[v]}" class="${S.bank[v] ? '' : 'out'}">${v}€ <b>×${S.bank[v]}</b></i>`).join('')}</div>`;
+/* who you can change with: the bank, or another player (who has to accept). Players' stocks are made up for the mockup */
+const PEOPLE = {
+  bank: { art: 'la banca', Art: 'La banca', stock: S.bank },
+  Laia: { art: 'la Laia', Art: 'La Laia', stock: { 500: 1, 100: 3, 50: 1, 20: 4, 10: 6, 5: 3, 1: 8 }, c: '#E8505B' },
+  Jordi: { art: 'en Jordi', Art: 'En Jordi', stock: { 500: 2, 100: 1, 50: 4, 20: 2, 10: 3, 5: 6, 1: 2 }, c: '#4A90D9' },
+  Nuria: { art: 'la Núria', Art: 'La Núria', stock: { 500: 0, 100: 4, 50: 3, 20: 5, 10: 1, 5: 2, 1: 4 }, c: '#3FB37F', name: 'Núria' }
+};
+const billsTxt = bills => VALS.filter(v => bills.includes(v)).map(v => { const n = bills.filter(x => x === v).length; return (n === 1 ? 'un de ' : n + ' de ') + v + '€'; }).join(' + ');
+const stockRow = who => { const P = PEOPLE[who]; return `<div class="bank"><span>${P.Art} té</span>${VALS.map(v => `<i style="--bc:${COL[v]}" class="${P.stock[v] ? '' : 'out'}">${v}€ <b>×${P.stock[v]}</b></i>`).join('')}</div>`; };
 function drawPay() {
   const p = S.pay, el = $('#pay'); if (!p) { el.innerHTML = ''; return; }
-  const sum = p.given.reduce((a, v) => a + v, 0), extra = p.given.find(v => sum - v >= p.amt);
-  let msg, can = false;
-  if (p.mode === 'change') msg = p.last ? `La banca t'ha canviat <b>${p.last}</b>. Toca un altre bitllet si en vols canviar més.` : 'Toca un bitllet de la teva mà i la banca te\'l canvia per bitllets més petits.';
-  else if (sum < p.amt) msg = `Toca els bitllets de la teva mà per posar-los aquí. Falten <b>${p.amt - sum}€</b>.`;
-  else if (extra !== undefined) msg = `Et sobra el bitllet de ${extra}€. Toca'l per tornar-lo a la mà.`;
-  else if (sum === p.amt) msg = `Just. La Laia rep ${p.amt}€.`;
-  else if (!bankSettle(p.given, p.amt)) msg = `La banca no té bitllets per tornar-te ${sum - p.amt}€ de canvi. Demana canvi d'algun bitllet o paga just.`;
-  else msg = `Pagues ${sum}€ a la banca, la banca dona ${p.amt}€ justos a la Laia i et torna <b>${sum - p.amt}€</b>.`;
-  can = p.mode !== 'change' && sum >= p.amt && extra === undefined && (sum === p.amt || !!bankSettle(p.given, p.amt));
-  el.innerHTML = `<div class="paybox" role="dialog" aria-label="Pagar a la Laia">
+  const sum = p.given.reduce((a, v) => a + v, 0), P = PEOPLE[p.who];
+  let msg, body;
+  if (p.mode === 'change') {
+    msg = p.wait ? `Esperant que ${P.art} accepti: ${p.wait}…`
+      : p.last ? `${P.Art} t'ha canviat <b>${p.last}</b>. Toca un altre bitllet si en vols canviar més.`
+      : p.dir === 'down' ? `Toca un bitllet de la teva mà i ${P.art} te'l canvia per bitllets més petits.`
+      : `Toca un grup de bitllets petits de la teva mà i ${P.art} te'ls canvia per un de més gran (per exemple, deu d'1€ per un de 10€).`;
+    body = `<div class="chips"><span>Amb</span>${Object.keys(PEOPLE).map(k => `<button data-a="payWho" data-v="${k}" class="${p.who === k ? 'on' : ''}">${k === 'bank' ? 'Banca' : PEOPLE[k].name || k}</button>`).join('')}</div>
+      <div class="chips"><span>Vull</span><button data-a="payDir" data-v="down" class="${p.dir === 'down' ? 'on' : ''}">Més petits</button><button data-a="payDir" data-v="up" class="${p.dir === 'up' ? 'on' : ''}">Més grans</button></div>
+      <p>${msg}</p>${stockRow(p.who)}`;
+  } else {
+    msg = sum < p.amt ? `Toca els bitllets de la teva mà per posar-los aquí. Falten <b>${p.amt - sum}€</b>.`
+      : sum > p.amt ? `T'has passat <b>${sum - p.amt}€</b>. Només es pot pagar just: treu algun bitllet o demana canvi.`
+      : `Just. La Laia rep ${p.amt}€.`;
+    body = `<div class="tray">${p.given.length ? p.given.map((v, i) => `<button class="mini" data-a="unGive" data-v="${i}" aria-label="Treure ${v}€">${billHtml(v)}</button>`).join('') : '<span class="empty">Aquí hi van els bitllets</span>'}</div>
+      <div class="sum">Hi has posat <b>${sum}€</b> de ${p.amt}€</div><p>${msg}</p>`;
+  }
+  const enter = p.enter; p.enter = false;
+  el.innerHTML = `<div class="paybox ${enter ? 'enter' : ''}" role="dialog" aria-label="Pagar a la Laia">
     <div class="ph"><span class="av" style="background:#E8505B">L</span><div><small>LLOGUER DE CAL TRILLA AMB 2 CASES</small><b>Pagar ${p.amt}€ a la Laia</b></div></div>
-    <div class="seg"><button data-a="payMode" data-v="pay" class="${p.mode === 'pay' ? 'on' : ''}">Triar bitllets</button><button data-a="payMode" data-v="change" class="${p.mode === 'change' ? 'on' : ''}">Canvi a la banca</button></div>
-    <div class="tray">${p.given.length ? p.given.map((v, i) => `<button class="mini" data-a="unGive" data-v="${i}" aria-label="Treure ${v}€">${billHtml(v)}</button>`).join('') : '<span class="empty">Aquí hi van els bitllets</span>'}</div>
-    <div class="sum">Hi has posat <b>${sum}€</b> de ${p.amt}€</div>
-    <p>${msg}</p>${bankRow()}
-    <div class="row"><button class="pill" data-a="payCancel">Cancel·lar</button><button class="pill red" data-a="payGo" ${can ? '' : 'disabled'}>Pagar ${p.amt}€</button></div></div>`;
+    <div class="seg"><button data-a="payMode" data-v="pay" class="${p.mode === 'pay' ? 'on' : ''}">Triar bitllets</button><button data-a="payMode" data-v="change" class="${p.mode === 'change' ? 'on' : ''}">Demanar canvi</button></div>
+    ${body}
+    <div class="row"><button class="pill" data-a="payCancel">Cancel·lar</button><button class="pill red" data-a="payGo" ${p.mode === 'pay' && sum === p.amt ? '' : 'disabled'}>Pagar ${p.amt}€</button></div></div>`;
 }
 function payGive(v) {
+  const p = S.pay;
   if (!S.wallet[v]) { toast('info', 'No et queden bitllets de ' + v + '€', 'Tria un altre bitllet.', 2200); return; }
-  if (S.pay.mode === 'change') {
-    if (!CHANGE[v]) { toast('info', 'L\'1€ no es pot canviar', 'Ja és el bitllet més petit.', 2200); return; }
-    const opt = CHANGE[v].find(o => has(S.bank, o));
-    if (!opt) { toast('info', 'La banca no té canvi per a ' + v + '€', 'No li queden prou bitllets petits.', 2600); return; }
-    S.wallet[v]--; S.bank[v]++; opt.forEach(x => { S.wallet[x]++; S.bank[x]--; });
-    const same = opt.every(x => x === opt[0]);
-    S.pay.last = `${v}€ per ${same ? opt.length + ' de ' + opt[0] + '€' : opt.map(x => x + '€').join(' + ')}`;
-    drawHand(opt[0]); setTimeout(() => drawHand(), 500); drawPay(); return;
+  if (p.mode !== 'change') { S.wallet[v]--; p.given.push(v); drawHand(); drawPay(); return; }
+  if (p.wait) return;
+  const P = PEOPLE[p.who], stock = P.stock;
+  let give, get;
+  if (p.dir === 'down') {
+    if (!CHANGE[v]) { toast('info', 'L\'1€ no es pot canviar per més petits', 'Ja és el bitllet més petit.', 2400); return; }
+    get = CHANGE[v].find(o => has(stock, o));
+    if (!get) { toast('info', P.Art + ' no té canvi per a ' + v + '€', 'Prova-ho amb una altra persona.', 2600); return; }
+    give = [v];
+  } else {
+    const n = S.wallet[v], ups = VALS.filter(u => u > v && u % v === 0 && u / v <= n);
+    if (!ups.length) { toast('info', 'Amb ' + n + ' de ' + v + '€ no en fas un de més gran', 'Necessites més bitllets de ' + v + '€.', 2600); return; }
+    const u = ups.find(x => stock[x] > 0);
+    if (!u) { toast('info', P.Art + ' no té bitllets més grans', 'Prova-ho amb una altra persona.', 2600); return; }
+    give = Array(u / v).fill(v); get = [u];
   }
-  S.wallet[v]--; S.pay.given.push(v); drawHand(); drawPay();
+  const txt = billsTxt(give) + ' per ' + billsTxt(get);
+  const apply = () => {
+    give.forEach(x => { S.wallet[x]--; stock[x]++; }); get.forEach(x => { S.wallet[x]++; stock[x]--; });
+    p.last = txt; p.wait = ''; drawHand(get[0]); setTimeout(() => drawHand(), 500); drawPay();
+  };
+  if (p.who === 'bank') return apply();
+  p.wait = txt; p.last = ''; drawPay();
+  setTimeout(() => { if (S.pay !== p) return; apply(); toast('ok', P.Art + ' ha acceptat el canvi', txt + '.', 2600); }, 1500);
 }
 
 /* ---------- dragging ---------- */
@@ -419,7 +433,7 @@ $('#pieces').addEventListener('pointermove', e => {
   if (!d.moved && S.open !== null) { S.open = null; drawHand(); }
   d.moved = true; d.x = d.x0 + dx; d.y = d.y0 + dy;
   d.els.forEach((el, j) => { el.classList.remove('thrown', 'nope'); el.classList.add('lifted'); el.style.left = d.x + 'px'; el.style.top = (d.y + j * dyCard) + 'px'; });
-  if (d.kind === 'bill') { const g = overHand(d); if (g !== d.g) { d.g = g; drawHand(null, g === null ? null : VALS[g]); } }
+  if (d.kind === 'bill') { const g = overHand(d); if (g !== d.g) { d.g = g; drawHand(null, g === null ? null : d.b.v); } }
 });
 function overHand(D) {
   const cx = D.x + BW / 2, cy = D.y + BH / 2, P = pivot();
@@ -445,19 +459,13 @@ const endDrag = () => {
   const b = D.b;
   if (!D.moved) return;
   const g = overHand(D);
-  if (g !== null && VALS[g] === b.v) {
+  if (g !== null) {
     S.loose = S.loose.filter(x => x !== b); S.wallet[b.v]++;
     drawPieces(); drawHand(b.v); setTimeout(() => drawHand(), 450);
     if (!S.loose.length && S.toast && S.toast.kind === 'pay') toast('ok', 'Tot a la mà', 'Ara tens ' + fmt(total()) + '€.', 3500);
     return;
   }
   drawHand();
-  if (g !== null) {
-    drawPieces();
-    pcEls['b' + b.id].classList.add('nope');
-    toast('pay', 'Aquest no és el seu lloc', 'El bitllet de ' + b.v + '€ va amb els de ' + b.v + '€.', 2500);
-    return;
-  }
   b.x = Math.max(6, Math.min(W - BW - 6, D.x)); b.y = Math.max(124, Math.min(H - 270, D.y)); b.rot = 0;
   drawPieces();
 };
@@ -527,16 +535,15 @@ const ACT = {
   menu: () => S.menu ? closeMenu() : openMenu(),
   closeMenu,
   menuItem: v => { closeMenu(); if (+v === 2) return ACT.payOpen(); toast('info', MENU[v][0], MENU[v][2], 3200); },
-  payOpen: () => { if (S.pay) return; S.open = null; S.pay = { amt: 250, given: [], mode: 'pay', last: '' }; drawHand(); drawPay(); $('#toast').innerHTML = ''; },
+  payOpen: () => { if (S.pay) return; S.open = null; S.pay = { amt: 250, given: [], mode: 'pay', last: '', wait: '', who: 'bank', dir: 'down', enter: true }; drawHand(); drawPay(); $('#toast').innerHTML = ''; },
   payMode: m => { S.pay.mode = m; S.pay.last = ''; drawPay(); },
+  payWho: w => { if (S.pay.wait) return; S.pay.who = w; S.pay.last = ''; drawPay(); },
+  payDir: d => { S.pay.dir = d; S.pay.last = ''; drawPay(); },
   unGive: i => { const v = S.pay.given.splice(+i, 1)[0]; S.wallet[v]++; drawHand(v); setTimeout(() => drawHand(), 450); drawPay(); },
   payCancel: () => { S.pay.given.forEach(v => S.wallet[v]++); S.pay = null; drawPay(); drawHand(); },
   payGo: () => {
-    const p = S.pay, sum = p.given.reduce((a, v) => a + v, 0), change = sum - p.amt, deal = change > 0 && bankSettle(p.given, p.amt);
-    if (deal) S.bank = deal.stock;
-    S.pay = null; drawPay(); drawHand();
-    if (deal) { throwBills(deal.back); toast('pay', 'La banca t\'ha tornat ' + change + '€', 'La Laia ja té els seus ' + p.amt + '€. Posa el canvi a la mà.'); }
-    else toast('ok', 'Has pagat ' + p.amt + '€ a la Laia', 'Just, sense canvi.', 3000);
+    const p = S.pay; S.pay = null; drawPay(); drawHand();
+    toast('ok', 'Has pagat ' + p.amt + '€ a la Laia', 'Just, sense canvi.', 3000);
   },
   demoPay: () => { closeMenu(); getPaid(); },
   demoCard: () => { closeMenu(); S.cardThrown = false; S.stacks.forEach(s => { s.items = s.items.filter(x => x !== 'castell'); }); S.stacks = S.stacks.filter(s => s.items.length); drawPieces(); throwCard(); },

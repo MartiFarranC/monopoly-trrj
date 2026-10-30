@@ -24,7 +24,7 @@ describe('lloguers', () => {
 
   it('serveis segons els daus', () => {
     expect(rentFor({ 12: own('a') }, 12, 7)).toBe(28);
-    expect(rentFor({ 12: own('a'), 28: own('a') }, 12, 7)).toBe(70);
+    expect(rentFor({ 12: own('a'), 27: own('a') }, 12, 7)).toBe(70);
   });
 
   it('una propietat hipotecada no cobra', () => {

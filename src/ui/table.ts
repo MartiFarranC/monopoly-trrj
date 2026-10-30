@@ -128,6 +128,8 @@ export class TableScreen implements Screen {
   private board: BoardStrip;
   /** L'últim moviment que ja ha arribat a la casella en aquest mòbil. */
   private landedId = '';
+  /** Avisos que esperen que el peó arribi a la casella. */
+  private onLand: (() => void)[] = [];
   private resizeT = 0;
   private onResize = () => {
     clearTimeout(this.resizeT);
@@ -289,10 +291,14 @@ export class TableScreen implements Screen {
 
     // Algú ha caigut a una casella teva: el lloguer ja se li ha demanat sol.
     const toCollect = state.paymentRequests.filter((r) => r.creditor === this.me && r.status === 'pending' && r.square !== undefined && !r.auction && !this.knownPayReqs.has(r.id));
+    // Si el deute ve d'una tirada, l'avís espera que el peó arribi a la casella.
+    const pawnWalking = !first && !!state.lastMove && state.lastMove.id !== this.landedId && state.lastMove.steps > 0;
     if (!first && toCollect.length) {
       const r = toCollect[toCollect.length - 1]!;
-      buzz([80, 60, 80]);
-      this.toast('pay', `${userById(r.debtor).name} ha caigut a ${getOwnable(r.square!).name}`, `Ja li hem demanat el lloguer: cobraràs ${fmt(r.amount)}€ quan pagui.`, 5500);
+      this.afterLanding(pawnWalking, () => {
+        buzz([80, 60, 80]);
+        this.toast('pay', `${userById(r.debtor).name} ha caigut a ${getOwnable(r.square!).name}`, `Ja li hem demanat el lloguer: cobraràs ${fmt(r.amount)}€ quan pagui.`, 5500);
+      });
     }
 
     // Avisos forts: et toca pagar, o et toca tirar.
@@ -303,8 +309,10 @@ export class TableScreen implements Screen {
     this.lastTurn = turn;
     if (!first && newDebts.length) {
       const r = newDebts[newDebts.length - 1]!;
-      buzz([200, 100, 200]);
-      this.toast('info', `Has de pagar ${fmt(r.amount)}€ a ${nameOf(r.creditor)}`, 'Toca «Pagar» a l\u2019avís de dalt.', 5000);
+      this.afterLanding(pawnWalking, () => {
+        buzz([200, 100, 200]);
+        this.toast('info', `Has de pagar ${fmt(r.amount)}€ a ${nameOf(r.creditor)}`, 'Toca «Pagar» a l\u2019avís de dalt.', 5000);
+      });
     } else if (myTurnNow) {
       buzz([120]);
       this.toast('ok', 'És el teu torn!', 'Tira els daus. Quan acabis, toca «Acabar el torn».', 4500);
@@ -512,9 +520,17 @@ export class TableScreen implements Screen {
     return this.st.requests.filter((r) => r.status === 'pending');
   }
 
+  private afterLanding(wait: boolean, fn: () => void) {
+    if (wait) this.onLand.push(fn);
+    else fn();
+  }
+
   /** El peó ha arribat: avisos del que toca fer a la casella. */
   private landed(m: PawnMove) {
     this.landedId = m.id;
+    const queued = this.onLand.splice(0);
+    queued.forEach((fn) => fn());
+    if (queued.length) return this.drawInbox();
     this.drawInbox();
     if (m.player !== this.me) return;
     const sq = getSquare(m.to);

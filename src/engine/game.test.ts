@@ -212,3 +212,13 @@ describe('bitllets comptats de la banca', () => {
     expect(moneyInGame(s)).toBe(20580);
   });
 });
+
+describe('xat i final', () => {
+  it('els jugadors escriuen al xat i el màster acaba la partida', () => {
+    let s = applyAction(startedGame(), 'anna', { type: 'chat', text: '  Paga!  ' });
+    expect(s.chat.at(-1)).toMatchObject({ author: 'anna', text: 'Paga!' });
+    expect(() => applyAction(s, 'anna', { type: 'end-game' })).toThrow(/màster/);
+    s = applyAction(s, 'marti', { type: 'end-game' });
+    expect(s.status).toBe('finished');
+  });
+});

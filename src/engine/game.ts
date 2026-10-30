@@ -85,6 +85,8 @@ export interface Auction {
 }
 
 export interface GameState {
+  /** Identificador de la partida (per distingir-la de les anteriors). */
+  id: string;
   status: 'lobby' | 'playing' | 'finished';
   master: PlayerId;
   invited: PlayerId[];
@@ -101,8 +103,18 @@ export interface GameState {
   auction: Auction | null;
   lastDice: [number, number] | null;
   transactions: Transaction[];
+  chat: ChatMessage[];
   seq: number;
 }
+
+export interface ChatMessage {
+  id: string;
+  author: PlayerId;
+  text: string;
+}
+
+/** Missatges de xat que es guarden; els més antics es descarten. */
+export const CHAT_LIMIT = 40;
 
 export type Action =
   | { type: 'join' }
@@ -128,15 +140,19 @@ export type Action =
   | { type: 'pass-go' }
   | { type: 'start-auction'; square: number }
   | { type: 'bid'; amount: number }
-  | { type: 'close-auction' };
+  | { type: 'close-auction' }
+  | { type: 'chat'; text: string }
+  /** El màster acaba la partida (o l'anul·la a la sala d'espera). Després se'n pot crear una de nova. */
+  | { type: 'end-game' };
 
 /** Crea la partida: qui clica «Començar partida» és el màster i tria qui juga (ell inclòs). */
-export function createGame(master: PlayerId, players: PlayerId[]): GameState {
+export function createGame(master: PlayerId, players: PlayerId[], id = ''): GameState {
   const invited = [...new Set([master, ...players])];
   if (invited.length < MIN_PLAYERS || invited.length > MAX_PLAYERS) {
     throw new RuleError(`Hi ha d'haver entre ${MIN_PLAYERS} i ${MAX_PLAYERS} jugadors`);
   }
   return {
+    id,
     status: 'lobby',
     master,
     invited,
@@ -152,6 +168,7 @@ export function createGame(master: PlayerId, players: PlayerId[]): GameState {
     auction: null,
     lastDice: null,
     transactions: [],
+    chat: [],
     seq: 0,
   };
 }
@@ -442,6 +459,19 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       }
       requireFunds(actor, action.amount);
       state.auction.bids.push({ player: actor, amount: action.amount });
+      break;
+    }
+    case 'chat': {
+      if (!state.invited.includes(actor)) throw new RuleError('No jugues en aquesta partida');
+      const text = action.text.trim().slice(0, 200);
+      if (!text) throw new RuleError('El missatge és buit');
+      state.chat = [...state.chat, { id: nextId(), author: actor, text }].slice(-CHAT_LIMIT);
+      break;
+    }
+    case 'end-game': {
+      requireMaster();
+      state.status = 'finished';
+      state.auction = null;
       break;
     }
     case 'close-auction': {

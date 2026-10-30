@@ -1,25 +1,40 @@
-# Monopoly de Tarroja de Segarra
+# Tarrojapoly
 
-PWA per jugar al Monopoly de Tarroja amb els del poble des del mòbil (iPhone i Android), amb diners ficticis. Ús privat, no comercial.
+El Monopoly de Tarroja de Segarra com a web (PWA) per jugar des del mòbil, iPhone o Android, amb diners ficticis. Ús privat, no comercial.
 
-## Estat
+## Com es juga
 
-Ara hi ha la lògica del joc, sense pantalles (l'estètica s'està tancant a part):
+1. Obre la web i tria qui ets de la llista de veïns. El mòbil se'n recorda.
+2. Si no hi ha cap partida, qui la crea és el **màster**: tria entre 2 i 8 jugadors (ell inclòs).
+3. Els jugadors triats entren, veuen la sala d'espera i premen **Unir-me**. El màster veu qui hi ha entrat, tria l'ordre de torn i comença.
+4. A la taula tens les teves cartes al mig i els bitllets en ventall a baix. Des del menú pots comprar, posar cases, pagar, canviar bitllets, cobrar la Sortida, subhastar i hipotecar.
+5. Compres, cases, hipoteques i cobraments de la banca els accepta el màster. Els pagaments entre jugadors no: el propietari toca la carta, prem **Sol·licitar paga** i tria qui ha caigut.
+6. Només es paga just. Si no tens l'import exacte, demana canvi a la banca o a un altre jugador, cap a bitllets més petits o més grans. La banca té 30 bitllets de cada.
 
-- `src/data/board.ts`: les 40 caselles del Tarrojapoly. Els lloguers encara són els del Monopoly clàssic fins que les cartes tinguin valors.
-- `src/engine/bills.ts`: carteres de bitllets (500, 100, 50, 20, 10, 5, 1). En pagar, el jugador tria quins bitllets dona i han de sumar l'import just. Només es paga just: si no el té, abans demana canvi a la banca o a un altre jugador, cap a bitllets més petits (un de 100 per dos de 50) o més grans (deu d'1 per un de 10). Qui cobra no torna mai canvi. La banca té els bitllets comptats com a la caixa del joc (30 de cada) i només pot donar els que li queden.
-- `src/engine/rules.ts`: lloguers (grup complet, cases, hotel, estacions, serveis), construcció uniforme, límit de 32 cases i 12 hotels, hipoteques.
-- `src/engine/game.ts`: la partida. El màster crea la partida i tria de 2 a 8 jugadors, ells s'uneixen, el màster fixa l'ordre de torn. Compres, cases, vendes i hipoteques són peticions que el màster accepta o rebutja (les seves s'apliquen soles, perquè també juga). Els pagaments entre jugadors no passen pel màster: el propietari fa «sol·licitar paga» des de la carta i el deutor prem «Pagar». També hi ha subhastes, pas per la Sortida i pagaments a la banca.
-- `supabase/schema.sql`: taules, permisos i temps real per a Supabase.
+Per instal·lar-la com una app: a l'iPhone, Safari → Compartir → «Afegir a la pantalla d'inici»; a Android, Chrome → menú → «Instal·lar l'aplicació».
 
-## Com provar-ho
+## Codi
+
+- `src/data/board.ts`: les 40 caselles del Tarrojapoly. Els lloguers són els del Monopoly clàssic fins que les cartes tinguin valors.
+- `src/data/users.ts`: la llista de veïns.
+- `src/engine/`: les regles i la partida (bitllets, lloguers, cases, màster, subhastes, canvis). Funcions pures amb proves.
+- `src/net/store.ts`: on es guarda la partida. Amb Supabase, tots els mòbils la comparteixen en temps real; sense, funciona en mode prova en un sol mòbil.
+- `src/ui/`: les pantalles (triar usuari, sala d'espera i la taula).
+- `public/maqueta.html`: la maqueta de disseny original.
 
 ```bash
 npm install
+npm run dev     # per provar-la a l'ordinador
 npm test
-npm run typecheck
+npm run build
 ```
 
-## Arquitectura
+## Publicació
 
-L'estat de cada partida és un JSON que només canvia aplicant accions amb `applyAction(estat, qui, acció)`. El servidor (una funció de Supabase) validarà cada acció amb aquest mateix motor i guardarà el nou estat a `games.state`; els mòbils l'escolten en temps real.
+Cada canvi a `main` es publica sol a GitHub Pages amb l'acció `.github/workflows/pages.yml`. A Settings → Pages, l'origen ha de ser «GitHub Actions».
+
+## Supabase (perquè els mòbils juguin junts)
+
+1. Crea un projecte gratuït a supabase.com.
+2. Al projecte, obre **SQL Editor**, enganxa el contingut de `supabase/schema.sql` i executa'l.
+3. A **Project Settings → API**, copia la **Project URL** i la clau **anon public**, i posa-les a `src/config.ts`.

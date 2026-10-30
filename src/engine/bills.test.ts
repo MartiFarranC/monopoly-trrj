@@ -23,6 +23,12 @@ describe('bitllets', () => {
     expect(walletTotal(plan.given)).toBe(30);
     expect(walletTotal(plan.remaining)).toBe(470);
     expect(plan.broken.length).toBeGreaterThan(0);
+    expect(plan.exchange?.toBank).toMatchObject({ 500: 1 });
+    expect(walletTotal(plan.exchange!.fromBank)).toBe(500);
+  });
+
+  it('sense canvi no hi ha intercanvi amb la banca', () => {
+    expect(planPayment(startingWallet(), 120).exchange).toBeNull();
   });
 
   it('trenca bitllets petits si cap no cobreix l’import', () => {

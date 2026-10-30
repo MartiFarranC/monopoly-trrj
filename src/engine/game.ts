@@ -50,6 +50,8 @@ export interface Transaction {
   reason: string;
   /** Bitllets que han viatjat (per a l'animació dels bitllets volant). */
   bills: Wallet;
+  /** Si qui paga no tenia l'import just, primer ha canviat bitllets amb la banca. */
+  exchange?: { toBank: Wallet; fromBank: Wallet };
 }
 
 export interface Auction {
@@ -139,15 +141,18 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
 
   const transfer = (from: Party, to: Party, amount: number, reason: string) => {
     let bills: Wallet;
+    let exchange: Transaction['exchange'];
     if (from === BANK) {
       bills = bankBills(amount);
     } else {
+      // Si no té l'import just, qui paga canvia bitllets amb la banca; qui cobra mai torna canvi.
       const plan = planPayment(state.wallets[from]!, amount);
       state.wallets[from] = plan.remaining;
       bills = plan.given;
+      exchange = plan.exchange ?? undefined;
     }
     if (to !== BANK) state.wallets[to] = addWallets(state.wallets[to]!, bills);
-    state.transactions.push({ id: nextId(), from, to, amount, reason, bills });
+    state.transactions.push({ id: nextId(), from, to, amount, reason, bills, ...(exchange && { exchange }) });
   };
 
   const requireFunds = (player: PlayerId, amount: number) => {

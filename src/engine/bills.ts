@@ -81,6 +81,11 @@ export interface PaymentPlan {
   given: Wallet;
   /** Bitllets que la banca ha hagut de trencar per poder pagar l'import just. */
   broken: Denomination[];
+  /**
+   * Canvi amb la banca, si n'hi ha hagut: qui paga dona `toBank` a la banca i rep `fromBank`.
+   * Qui cobra no torna mai bitllets; sempre rep l'import just.
+   */
+  exchange: { toBank: Wallet; fromBank: Wallet } | null;
 }
 
 /** Decideix amb quins bitllets es paga `amount`, demanant canvi a la banca si cal. */
@@ -96,7 +101,7 @@ export function planPayment(wallet: Wallet, amount: number): PaymentPlan {
     if (given) {
       const remaining = emptyWallet();
       for (const d of DENOMINATIONS) remaining[d] = current[d] - given[d];
-      return { remaining, given, broken };
+      return { remaining, given, broken, exchange: netExchange(wallet, current) };
     }
     // Sense import just: trenquem el bitllet més petit que cobreixi l'import, o si no n'hi ha cap,
     // el bitllet més petit que es pugui trencar. Sempre acaba perquè el total no canvia i
@@ -108,6 +113,17 @@ export function planPayment(wallet: Wallet, amount: number): PaymentPlan {
     current = breakBill(current, toBreak);
     broken.push(toBreak);
   }
+}
+
+function netExchange(before: Wallet, after: Wallet): PaymentPlan['exchange'] {
+  const toBank = emptyWallet();
+  const fromBank = emptyWallet();
+  for (const d of DENOMINATIONS) {
+    const diff = after[d] - before[d];
+    if (diff > 0) fromBank[d] = diff;
+    else toBank[d] = -diff;
+  }
+  return walletTotal(toBank) === 0 ? null : { toBank, fromBank };
 }
 
 export class InsufficientFundsError extends Error {

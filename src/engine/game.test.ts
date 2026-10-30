@@ -127,6 +127,19 @@ describe('diners', () => {
     expect(s.transactions).toHaveLength(2);
   });
 
+  it('sense canvi, qui paga canvia a la banca i qui cobra rep l\u2019import just', () => {
+    let s = startedGame();
+    // L'Anna només té un bitllet de 500.
+    s = { ...s, wallets: { ...s.wallets, anna: { 500: 1, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 1: 0 } } };
+    const before = s.wallets.pere!;
+    s = applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 5, reason: 'Lloguer' });
+    const tx = s.transactions.at(-1)!;
+    expect(tx.exchange?.toBank).toMatchObject({ 500: 1 });
+    expect(tx.bills).toMatchObject({ 5: 1 });
+    expect(s.wallets.pere).toEqual({ ...before, 5: before[5] + 1 });
+    expect(balanceOf(s, 'anna')).toBe(495);
+  });
+
   it('no es pot pagar més del que es té', () => {
     expect(() => applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 2000, reason: 'Bizum' })).toThrow(/prou diners/);
   });

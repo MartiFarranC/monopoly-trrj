@@ -1,6 +1,6 @@
 // Bitllets: cada jugador i la banca tenen bitllets concrets i comptats, com al Monopoly de
-// cartró. Quan qui paga no té l'import just, canvia bitllets amb la banca, que només pot
-// donar els bitllets que li queden.
+// cartró. Només es paga amb l'import just; qui no el té ha de canviar abans amb la banca o
+// amb un altre jugador.
 
 export const DENOMINATIONS = [500, 100, 50, 20, 10, 5, 1] as const;
 export type Denomination = (typeof DENOMINATIONS)[number];
@@ -123,56 +123,6 @@ export function dealStartingMoney(bank: Wallet, players: number): { bank: Wallet
     wallets.push({ ...wallet });
   }
   return { bank: current, wallets };
-}
-
-export interface Settlement {
-  payer: Wallet;
-  bank: Wallet;
-  /** Bitllets que rep qui cobra. Si cobra un jugador sumen l'import just; si cobra la banca, són els que s'han entregat. */
-  given: Wallet;
-  /**
-   * Canvi amb la banca, si n'hi ha hagut: qui paga dona `toBank` a la banca i rep `fromBank`
-   * (que inclou els bitllets que després passa a qui cobra). Qui cobra no torna mai canvi.
-   */
-  exchange: { toBank: Wallet; fromBank: Wallet } | null;
-}
-
-/**
- * Decideix amb quins bitllets es paga `amount`. Si no hi ha l'import just, qui paga dona a la
- * banca el mínim que el cobreixi i la banca li torna el canvi, sempre amb els bitllets que té.
- */
-export function settlePayment(payer: Wallet, bank: Wallet, amount: number, toBank: boolean): Settlement {
-  assertAmount(amount);
-  const total = walletTotal(payer);
-  if (total < amount) throw new InsufficientFundsError(amount, total);
-
-  const exact = exactBills(payer, amount);
-  if (exact) {
-    return {
-      payer: subtractWallets(payer, exact),
-      bank: toBank ? addWallets(bank, exact) : bank,
-      given: exact,
-      exchange: null,
-    };
-  }
-
-  for (let paid = amount + 1; paid <= total; paid++) {
-    const handed = exactBills(payer, paid);
-    if (!handed) continue;
-    const pool = addWallets(bank, handed);
-    // Si cobra un jugador, la banca li ha de poder donar l'import just; si cobra la banca, se'l queda.
-    const toCreditor = toBank ? emptyWallet() : exactBills(pool, amount);
-    if (!toCreditor) continue;
-    const change = exactBills(subtractWallets(pool, toCreditor), paid - amount);
-    if (!change) continue;
-    return {
-      payer: addWallets(subtractWallets(payer, handed), change),
-      bank: subtractWallets(subtractWallets(pool, toCreditor), change),
-      given: toBank ? handed : toCreditor,
-      exchange: { toBank: handed, fromBank: addWallets(change, toCreditor) },
-    };
-  }
-  throw new BankShortError(amount);
 }
 
 export class InsufficientFundsError extends Error {

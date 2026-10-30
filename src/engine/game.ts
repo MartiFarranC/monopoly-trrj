@@ -8,7 +8,6 @@ import {
   dealStartingMoney,
   hasBills,
   payFromBank,
-  settlePayment,
   subtractWallets,
   toWallet,
   walletTotal,
@@ -41,16 +40,31 @@ export interface MasterRequest {
   /** Només per a 'bank-payment': diners que la banca dona al jugador (p. ex. una carta de Sort). */
   amount?: number;
   reason?: string;
+  /** Bitllets amb què pagarà (compres, cases i hipoteques aixecades). Han de sumar l'import just. */
+  bills?: Wallet;
   status: 'pending' | 'approved' | 'rejected';
 }
 
 export interface PaymentRequest {
   id: string;
-  creditor: PlayerId;
+  /** Qui cobra. La banca cobra, per exemple, la puja guanyadora d'una subhasta. */
+  creditor: Party;
   debtor: PlayerId;
   amount: number;
   square?: number;
+  /** Si és el pagament d'una subhasta, en pagar-lo el deutor es queda la propietat. */
+  auction?: boolean;
   status: 'pending' | 'paid' | 'cancelled';
+}
+
+/** Proposta de canvi de bitllets entre dos jugadors: `from` dona `give` i rep `receive`. */
+export interface ExchangeOffer {
+  id: string;
+  from: PlayerId;
+  to: PlayerId;
+  give: Wallet;
+  receive: Wallet;
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
 }
 
 export interface Transaction {
@@ -61,8 +75,8 @@ export interface Transaction {
   reason: string;
   /** Bitllets que han viatjat (per a l'animació dels bitllets volant). */
   bills: Wallet;
-  /** Si qui paga no tenia l'import just, primer ha canviat bitllets amb la banca. */
-  exchange?: { toBank: Wallet; fromBank: Wallet };
+  /** En un canvi de bitllets, el que `to` ha donat a `from` a canvi de `bills`. */
+  returned?: Wallet;
 }
 
 export interface Auction {
@@ -83,6 +97,7 @@ export interface GameState {
   deeds: Deeds;
   requests: MasterRequest[];
   paymentRequests: PaymentRequest[];
+  exchangeOffers: ExchangeOffer[];
   auction: Auction | null;
   lastDice: [number, number] | null;
   transactions: Transaction[];
@@ -94,17 +109,22 @@ export type Action =
   | { type: 'set-turn-order'; order: PlayerId[] }
   | { type: 'roll-dice'; dice: [number, number] }
   | { type: 'end-turn' }
-  | { type: 'request'; kind: Exclude<MasterRequestKind, 'bank-payment'>; square: number }
+  /** Per a 'buy', 'build' i 'unmortgage' cal dir amb quins bitllets es pagarà. */
+  | { type: 'request'; kind: Exclude<MasterRequestKind, 'bank-payment'>; square: number; bills?: Partial<Wallet> }
   | { type: 'request-bank-payment'; amount: number; reason: string }
   | { type: 'resolve-request'; requestId: string; approve: boolean }
   | { type: 'request-payment'; debtor: PlayerId; square: number; diceTotal?: number }
   | { type: 'request-payment'; debtor: PlayerId; amount: number }
-  /** `bills`: els bitllets que tria el jugador; han de sumar l'import just. Sense `bills`, els tria l'app. */
-  | { type: 'pay-request'; requestId: string; bills?: Partial<Wallet> }
+  /** `bills`: els bitllets que tria el jugador. Han de sumar l'import just. */
+  | { type: 'pay-request'; requestId: string; bills: Partial<Wallet> }
   | { type: 'cancel-payment-request'; requestId: string }
-  | { type: 'pay'; to: Party; amount: number; reason: string; bills?: Partial<Wallet> }
-  /** Canviar bitllets a la banca, p. ex. un de 100 per dos de 50. */
+  | { type: 'pay'; to: Party; amount: number; reason: string; bills: Partial<Wallet> }
+  /** Canviar bitllets a la banca: un de 100 per dos de 50, o deu d'1 per un de 10. */
   | { type: 'exchange-bills'; give: Partial<Wallet>; receive: Partial<Wallet> }
+  /** Proposar a un altre jugador un canvi de bitllets; l'altre l'accepta o el rebutja. */
+  | { type: 'propose-exchange'; to: PlayerId; give: Partial<Wallet>; receive: Partial<Wallet> }
+  | { type: 'respond-exchange'; offerId: string; accept: boolean }
+  | { type: 'cancel-exchange'; offerId: string }
   | { type: 'pass-go' }
   | { type: 'start-auction'; square: number }
   | { type: 'bid'; amount: number }
@@ -128,6 +148,7 @@ export function createGame(master: PlayerId, players: PlayerId[]): GameState {
     deeds: {},
     requests: [],
     paymentRequests: [],
+    exchangeOffers: [],
     auction: null,
     lastDice: null,
     transactions: [],
@@ -156,33 +177,40 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
     if (!state.turnOrder.includes(actor)) throw new RuleError('No jugues en aquesta partida');
   };
 
+  /** Només es paga amb l'import just: qui cobra no torna mai canvi. */
   const transfer = (from: Party, to: Party, amount: number, reason: string, chosen?: Partial<Wallet>) => {
     let bills: Wallet;
-    let exchange: Transaction['exchange'];
     if (from === BANK) {
       const paid = payFromBank(state.bank, amount);
       state.bank = paid.bank;
       bills = paid.given;
-    } else if (chosen) {
-      // El jugador tria els bitllets. Han de sumar l'import just: qui cobra no torna mai canvi,
-      // així que si no el té, primer ha de canviar a la banca.
+    } else {
+      if (!chosen) throw new RuleError('Tria amb quins bitllets pagues');
       bills = toWallet(chosen);
       if (!hasBills(state.wallets[from]!, bills)) throw new RuleError('No tens aquests bitllets');
       if (walletTotal(bills) !== amount) {
-        throw new RuleError(`Els bitllets sumen ${walletTotal(bills)} i cal pagar ${amount}. Demana canvi a la banca.`);
+        throw new RuleError(`Els bitllets sumen ${walletTotal(bills)} i cal pagar ${amount} just. Demana canvi abans.`);
       }
       state.wallets[from] = subtractWallets(state.wallets[from]!, bills);
-      if (to === BANK) state.bank = addWallets(state.bank, bills);
-    } else {
-      // Si no té l'import just, qui paga canvia bitllets amb la banca; qui cobra mai torna canvi.
-      const settled = settlePayment(state.wallets[from]!, state.bank, amount, to === BANK);
-      state.wallets[from] = settled.payer;
-      state.bank = settled.bank;
-      bills = settled.given;
-      exchange = settled.exchange ?? undefined;
     }
-    if (to !== BANK) state.wallets[to] = addWallets(state.wallets[to]!, bills);
-    state.transactions.push({ id: nextId(), from, to, amount, reason, bills, ...(exchange && { exchange }) });
+    if (to === BANK) state.bank = addWallets(state.bank, bills);
+    else state.wallets[to] = addWallets(state.wallets[to]!, bills);
+    state.transactions.push({ id: nextId(), from, to, amount, reason, bills });
+  };
+
+  const swap = (a: PlayerId, b: Party, give: Wallet, receive: Wallet, reason: string) => {
+    if (walletTotal(give) === 0) throw new RuleError('Tria quins bitllets vols canviar');
+    if (walletTotal(give) !== walletTotal(receive)) throw new RuleError('El canvi ha de sumar el mateix');
+    if (!hasBills(state.wallets[a]!, give)) throw new RuleError('No tens aquests bitllets');
+    const other = b === BANK ? state.bank : state.wallets[b]!;
+    if (!hasBills(addWallets(other, give), receive)) {
+      throw new RuleError(b === BANK ? 'La banca no té aquests bitllets' : 'L\u2019altre jugador no té aquests bitllets');
+    }
+    state.wallets[a] = addWallets(subtractWallets(state.wallets[a]!, give), receive);
+    const updated = subtractWallets(addWallets(other, give), receive);
+    if (b === BANK) state.bank = updated;
+    else state.wallets[b] = updated;
+    state.transactions.push({ id: nextId(), from: a, to: b, amount: 0, reason, bills: give, returned: receive });
   };
 
   const requireFunds = (player: PlayerId, amount: number) => {
@@ -196,7 +224,7 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
         const s = getOwnable(square!);
         if (state.deeds[s.index]) throw new RuleError('Aquesta propietat ja té propietari');
         requireFunds(player, s.price);
-        transfer(player, BANK, s.price, `Compra de ${s.name}`);
+        transfer(player, BANK, s.price, `Compra de ${s.name}`, req.bills);
         state.deeds[s.index] = { owner: player, buildings: 0, mortgaged: false };
         break;
       }
@@ -205,7 +233,7 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
         const cost = buildCost(square!);
         requireFunds(player, cost);
         const deed = state.deeds[square!]!;
-        transfer(player, BANK, cost, `${deed.buildings === 4 ? 'Hotel' : 'Casa'} a ${getSquare(square!).name}`);
+        transfer(player, BANK, cost, `${deed.buildings === 4 ? 'Hotel' : 'Casa'} a ${getSquare(square!).name}`, req.bills);
         deed.buildings++;
         break;
       }
@@ -228,7 +256,7 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
         const s = getOwnable(square!);
         const cost = unmortgageCost(s);
         requireFunds(player, cost);
-        transfer(player, BANK, cost, `Aixecar la hipoteca de ${s.name}`);
+        transfer(player, BANK, cost, `Aixecar la hipoteca de ${s.name}`, req.bills);
         state.deeds[square!]!.mortgaged = false;
         break;
       }
@@ -287,7 +315,11 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
     }
     case 'request': {
       requirePlaying();
-      submitRequest({ kind: action.kind, player: actor, square: action.square });
+      const pays = action.kind === 'buy' || action.kind === 'build' || action.kind === 'unmortgage';
+      if (pays && !action.bills) throw new RuleError('Tria amb quins bitllets pagaràs');
+      const bills = action.bills ? toWallet(action.bills) : undefined;
+      if (bills && !hasBills(state.wallets[actor]!, bills)) throw new RuleError('No tens aquests bitllets');
+      submitRequest({ kind: action.kind, player: actor, square: action.square, ...(bills && { bills }) });
       break;
     }
     case 'request-bank-payment': {
@@ -330,9 +362,14 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       if (!req || req.status !== 'pending') throw new RuleError('Aquesta sol·licitud ja no està pendent');
       if (req.debtor !== actor) throw new RuleError('Aquesta sol·licitud no és per a tu');
       requireFunds(actor, req.amount);
-      const reason = req.square !== undefined ? `Lloguer de ${getSquare(req.square).name}` : 'Paga sol·licitada';
+      const reason = req.auction
+        ? `Subhasta de ${getSquare(req.square!).name}`
+        : req.square !== undefined
+          ? `Lloguer de ${getSquare(req.square).name}`
+          : 'Paga sol·licitada';
       transfer(actor, req.creditor, req.amount, reason, action.bills);
       req.status = 'paid';
+      if (req.auction) state.deeds[req.square!] = { owner: actor, buildings: 0, mortgaged: false };
       break;
     }
     case 'cancel-payment-request': {
@@ -353,23 +390,34 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
     }
     case 'exchange-bills': {
       requirePlaying();
+      swap(actor, BANK, toWallet(action.give), toWallet(action.receive), 'Canvi a la banca');
+      break;
+    }
+    case 'propose-exchange': {
+      requirePlaying();
+      if (action.to === actor || !state.turnOrder.includes(action.to)) throw new RuleError('Tria un altre jugador de la partida');
       const give = toWallet(action.give);
       const receive = toWallet(action.receive);
       if (walletTotal(give) === 0) throw new RuleError('Tria quins bitllets vols canviar');
       if (walletTotal(give) !== walletTotal(receive)) throw new RuleError('El canvi ha de sumar el mateix');
       if (!hasBills(state.wallets[actor]!, give)) throw new RuleError('No tens aquests bitllets');
-      if (!hasBills(addWallets(state.bank, give), receive)) throw new RuleError('La banca no té aquests bitllets');
-      state.wallets[actor] = addWallets(subtractWallets(state.wallets[actor]!, give), receive);
-      state.bank = subtractWallets(addWallets(state.bank, give), receive);
-      state.transactions.push({
-        id: nextId(),
-        from: actor,
-        to: BANK,
-        amount: 0,
-        reason: 'Canvi a la banca',
-        bills: give,
-        exchange: { toBank: give, fromBank: receive },
-      });
+      state.exchangeOffers.push({ id: nextId(), from: actor, to: action.to, give, receive, status: 'pending' });
+      break;
+    }
+    case 'respond-exchange': {
+      requirePlaying();
+      const offer = state.exchangeOffers.find((o) => o.id === action.offerId);
+      if (!offer || offer.status !== 'pending') throw new RuleError('Aquest canvi ja no està pendent');
+      if (offer.to !== actor) throw new RuleError('Aquest canvi no és per a tu');
+      if (action.accept) swap(offer.from, offer.to, offer.give, offer.receive, 'Canvi entre jugadors');
+      offer.status = action.accept ? 'accepted' : 'rejected';
+      break;
+    }
+    case 'cancel-exchange': {
+      const offer = state.exchangeOffers.find((o) => o.id === action.offerId);
+      if (!offer || offer.status !== 'pending') throw new RuleError('Aquest canvi ja no està pendent');
+      if (offer.from !== actor) throw new RuleError('Només qui l\u2019ha proposat el pot anul·lar');
+      offer.status = 'cancelled';
       break;
     }
     case 'pass-go': {
@@ -402,9 +450,17 @@ export function applyAction(prev: GameState, actor: PlayerId, action: Action): G
       const { square, bids } = state.auction;
       // Si el guanyador ja no té prou diners, guanya la puja vàlida anterior.
       const winner = [...bids].reverse().find((b) => balanceOf(state, b.player) >= b.amount);
+      // El guanyador paga a la banca amb l'import just, com qualsevol altre pagament.
       if (winner) {
-        transfer(winner.player, BANK, winner.amount, `Subhasta de ${getSquare(square).name}`);
-        state.deeds[square] = { owner: winner.player, buildings: 0, mortgaged: false };
+        state.paymentRequests.push({
+          id: nextId(),
+          creditor: BANK,
+          debtor: winner.player,
+          amount: winner.amount,
+          square,
+          auction: true,
+          status: 'pending',
+        });
       }
       state.auction = null;
       break;

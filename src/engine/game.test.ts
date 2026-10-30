@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { applyAction, balanceOf, createGame, type Action, type GameState } from './game';
 import { RuleError } from './rules';
 
-const MARRO_1 = 1;
-const MARRO_2 = 3;
-const ESTACIO_1 = 5;
+const MARRO_1 = 1; // La Font, 60
+const MARRO_2 = 3; // Safareig, 60
+const ESTACIO_1 = 5; // Plaça Vella, 200
+const ESGLESIA = 39; // 400
 
+// Cada jugador comença amb 2×500, 2×100, 2×50, 6×20, 5×10, 5×5 i 5×1.
 function startedGame(): GameState {
   let s = createGame('marti', ['anna', 'pere']);
   s = applyAction(s, 'anna', { type: 'join' });
@@ -15,6 +17,12 @@ function startedGame(): GameState {
 
 function run(s: GameState, steps: [string, Action][]): GameState {
   return steps.reduce((acc, [actor, action]) => applyAction(acc, actor, action), s);
+}
+
+function moneyInGame(s: GameState): number {
+  const players = s.turnOrder.reduce((n, p) => n + balanceOf(s, p), 0);
+  const bank = Object.entries(s.bank).reduce((n, [d, c]) => n + Number(d) * c, 0);
+  return players + bank;
 }
 
 describe('sala d’espera', () => {
@@ -38,7 +46,7 @@ describe('sala d’espera', () => {
 
 describe('peticions al màster', () => {
   it('la compra queda pendent fins que el màster l’accepta', () => {
-    let s = applyAction(startedGame(), 'anna', { type: 'request', kind: 'buy', square: MARRO_1 });
+    let s = applyAction(startedGame(), 'anna', { type: 'request', kind: 'buy', square: MARRO_1, bills: { 50: 1, 10: 1 } });
     expect(s.deeds[MARRO_1]).toBeUndefined();
     const id = s.requests[0]!.id;
     expect(() => applyAction(s, 'anna', { type: 'resolve-request', requestId: id, approve: true })).toThrow(/màster/);
@@ -47,65 +55,75 @@ describe('peticions al màster', () => {
     expect(balanceOf(s, 'anna')).toBe(1440);
   });
 
+  it('per demanar una compra cal triar els bitllets', () => {
+    expect(() => applyAction(startedGame(), 'anna', { type: 'request', kind: 'buy', square: MARRO_1 })).toThrow(/bitllets/);
+  });
+
   it('si el màster la rebutja no es mou cap diner', () => {
-    let s = applyAction(startedGame(), 'anna', { type: 'request', kind: 'buy', square: MARRO_1 });
+    let s = applyAction(startedGame(), 'anna', { type: 'request', kind: 'buy', square: MARRO_1, bills: { 50: 1, 10: 1 } });
     s = applyAction(s, 'marti', { type: 'resolve-request', requestId: s.requests[0]!.id, approve: false });
     expect(s.deeds[MARRO_1]).toBeUndefined();
     expect(balanceOf(s, 'anna')).toBe(1500);
   });
 
   it('les peticions del màster s’apliquen soles', () => {
-    const s = applyAction(startedGame(), 'marti', { type: 'request', kind: 'buy', square: ESTACIO_1 });
+    const s = applyAction(startedGame(), 'marti', { type: 'request', kind: 'buy', square: ESTACIO_1, bills: { 100: 2 } });
     expect(s.deeds[ESTACIO_1]?.owner).toBe('marti');
     expect(s.requests[0]!.status).toBe('approved');
   });
 
   it('construeix de manera uniforme dins del grup', () => {
     let s = run(startedGame(), [
-      ['marti', { type: 'request', kind: 'buy', square: MARRO_1 }],
-      ['marti', { type: 'request', kind: 'buy', square: MARRO_2 }],
-      ['marti', { type: 'request', kind: 'build', square: MARRO_1 }],
+      ['marti', { type: 'request', kind: 'buy', square: MARRO_1, bills: { 50: 1, 10: 1 } }],
+      ['marti', { type: 'request', kind: 'buy', square: MARRO_2, bills: { 50: 1, 10: 1 } }],
+      ['marti', { type: 'request', kind: 'build', square: MARRO_1, bills: { 20: 2, 10: 1 } }],
     ]);
     expect(s.deeds[MARRO_1]?.buildings).toBe(1);
-    expect(() => applyAction(s, 'marti', { type: 'request', kind: 'build', square: MARRO_1 })).toThrow(/uniforme/);
-    s = applyAction(s, 'marti', { type: 'request', kind: 'build', square: MARRO_2 });
+    expect(() =>
+      applyAction(s, 'marti', { type: 'request', kind: 'build', square: MARRO_1, bills: { 20: 2, 10: 1 } }),
+    ).toThrow(/uniforme/);
+    s = applyAction(s, 'marti', { type: 'request', kind: 'build', square: MARRO_2, bills: { 20: 2, 10: 1 } });
     expect(s.deeds[MARRO_2]?.buildings).toBe(1);
   });
 });
 
 describe('sol·licitar paga', () => {
-  it('el propietari demana el lloguer i el deutor paga', () => {
+  it('el propietari demana el lloguer i el deutor paga just', () => {
     let s = run(startedGame(), [
-      ['marti', { type: 'request', kind: 'buy', square: MARRO_1 }],
-      ['marti', { type: 'request', kind: 'buy', square: MARRO_2 }],
+      ['marti', { type: 'request', kind: 'buy', square: MARRO_1, bills: { 50: 1, 10: 1 } }],
+      ['marti', { type: 'request', kind: 'buy', square: MARRO_2, bills: { 50: 1, 10: 1 } }],
       ['marti', { type: 'request-payment', debtor: 'pere', square: MARRO_1 }],
     ]);
     const req = s.paymentRequests[0]!;
     expect(req.amount).toBe(4); // grup complet sense cases: lloguer doble
-    expect(() => applyAction(s, 'anna', { type: 'pay-request', requestId: req.id })).toThrow(/no és per a tu/);
-    s = applyAction(s, 'pere', { type: 'pay-request', requestId: req.id });
+    expect(() => applyAction(s, 'anna', { type: 'pay-request', requestId: req.id, bills: { 1: 4 } })).toThrow(/no és per a tu/);
+    expect(() => applyAction(s, 'pere', { type: 'pay-request', requestId: req.id, bills: { 5: 1 } })).toThrow(/just/);
+    s = applyAction(s, 'pere', { type: 'pay-request', requestId: req.id, bills: { 1: 4 } });
     expect(balanceOf(s, 'pere')).toBe(1496);
     expect(balanceOf(s, 'marti')).toBe(1500 - 120 + 4);
     expect(s.transactions.at(-1)).toMatchObject({ from: 'pere', to: 'marti', amount: 4 });
   });
 
   it('no es pot demanar paga per una propietat d’un altre', () => {
-    const s = applyAction(startedGame(), 'marti', { type: 'request', kind: 'buy', square: MARRO_1 });
+    const s = applyAction(startedGame(), 'marti', { type: 'request', kind: 'buy', square: MARRO_1, bills: { 50: 1, 10: 1 } });
     expect(() => applyAction(s, 'anna', { type: 'request-payment', debtor: 'pere', square: MARRO_1 })).toThrow(RuleError);
   });
 });
 
 describe('subhastes', () => {
-  it('guanya la puja més alta i paga a la banca', () => {
-    const s = run(startedGame(), [
+  it('el guanyador paga just a la banca i es queda la propietat', () => {
+    let s = run(startedGame(), [
       ['anna', { type: 'start-auction', square: ESTACIO_1 }],
       ['anna', { type: 'bid', amount: 50 }],
       ['pere', { type: 'bid', amount: 120 }],
       ['marti', { type: 'close-auction' }],
     ]);
+    expect(s.auction).toBeNull();
+    const req = s.paymentRequests.at(-1)!;
+    expect(req).toMatchObject({ creditor: 'bank', debtor: 'pere', amount: 120, auction: true });
+    s = applyAction(s, 'pere', { type: 'pay-request', requestId: req.id, bills: { 100: 1, 20: 1 } });
     expect(s.deeds[ESTACIO_1]?.owner).toBe('pere');
     expect(balanceOf(s, 'pere')).toBe(1380);
-    expect(s.auction).toBeNull();
   });
 
   it('cal pujar més que la puja anterior', () => {
@@ -117,82 +135,80 @@ describe('subhastes', () => {
   });
 });
 
-describe('diners', () => {
+describe('pagar només just', () => {
   it('cobra 200 en passar per la Sortida i paga impostos a la banca', () => {
     const s = run(startedGame(), [
       ['anna', { type: 'pass-go' }],
-      ['anna', { type: 'pay', to: 'bank', amount: 200, reason: 'Impost sobre la renda' }],
+      ['anna', { type: 'pay', to: 'bank', amount: 200, reason: 'Impost', bills: { 100: 2 } }],
     ]);
     expect(balanceOf(s, 'anna')).toBe(1500);
     expect(s.transactions).toHaveLength(2);
   });
 
-  it('sense canvi, qui paga canvia a la banca i qui cobra rep l\u2019import just', () => {
-    let s = startedGame();
-    // L'Anna només té un bitllet de 500.
-    s = { ...s, wallets: { ...s.wallets, anna: { 500: 1, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 1: 0 } } };
-    const before = s.wallets.pere!;
-    s = applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 5, reason: 'Lloguer' });
-    const tx = s.transactions.at(-1)!;
-    expect(tx.exchange?.toBank).toMatchObject({ 500: 1 });
-    expect(tx.bills).toMatchObject({ 5: 1 });
-    expect(s.wallets.pere).toEqual({ ...before, 5: before[5] + 1 });
-    expect(balanceOf(s, 'anna')).toBe(495);
-  });
-
-  it('el jugador tria els bitllets i demana canvi a la banca si no té l\u2019import just', () => {
-    let s = startedGame();
-    s = { ...s, wallets: { ...s.wallets, anna: { 500: 0, 100: 3, 50: 0, 20: 0, 10: 0, 5: 0, 1: 0 } } };
-    // Amb tres bitllets de 100 no pot pagar 250 just.
+  it('no deixa pagar de més ni esperar canvi', () => {
     expect(() =>
-      applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 250, reason: 'Lloguer', bills: { 100: 3 } }),
-    ).toThrow(/canvi/);
-    s = applyAction(s, 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 2 } });
-    expect(s.wallets.anna).toMatchObject({ 100: 2, 50: 2 });
-    s = applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 250, reason: 'Lloguer', bills: { 100: 2, 50: 1 } });
-    expect(s.wallets.anna).toMatchObject({ 100: 0, 50: 1 });
-    expect(balanceOf(s, 'pere')).toBe(1750);
-  });
-
-  it('el canvi a la banca ha de sumar el mateix', () => {
-    expect(() =>
-      applyAction(startedGame(), 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 1 } }),
-    ).toThrow(/mateix/);
+      applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 230, reason: 'x', bills: { 100: 2, 50: 1 } }),
+    ).toThrow(/just/);
   });
 
   it('no es pot pagar amb bitllets que no tens', () => {
     expect(() =>
-      applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 1000, reason: 'x', bills: { 500: 2 } }),
-    ).not.toThrow();
-    expect(() =>
       applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 1500, reason: 'x', bills: { 500: 3 } }),
     ).toThrow(/aquests bitllets/);
   });
+});
 
-  it('no es pot pagar més del que es té', () => {
-    expect(() => applyAction(startedGame(), 'anna', { type: 'pay', to: 'pere', amount: 2000, reason: 'Bizum' })).toThrow(/prou diners/);
+describe('canvis de bitllets', () => {
+  it('a la banca, a bitllets més petits', () => {
+    let s = startedGame();
+    s = { ...s, wallets: { ...s.wallets, anna: { 500: 0, 100: 3, 50: 0, 20: 0, 10: 0, 5: 0, 1: 0 } } };
+    s = applyAction(s, 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 2 } });
+    s = applyAction(s, 'anna', { type: 'pay', to: 'pere', amount: 250, reason: 'Lloguer', bills: { 100: 2, 50: 1 } });
+    expect(s.wallets.anna).toMatchObject({ 100: 0, 50: 1 });
+  });
+
+  it('a la banca, a bitllets més grans', () => {
+    let s = startedGame();
+    s = { ...s, wallets: { ...s.wallets, anna: { 500: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 1: 10 } } };
+    s = applyAction(s, 'anna', { type: 'exchange-bills', give: { 1: 10 }, receive: { 10: 1 } });
+    expect(s.wallets.anna).toMatchObject({ 1: 0, 10: 1 });
+  });
+
+  it('ha de sumar el mateix i la banca ha de tenir els bitllets', () => {
+    const s = startedGame();
+    expect(() => applyAction(s, 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 1 } })).toThrow(/mateix/);
+    const noFifties = { ...s, bank: { ...s.bank, 50: 0 } };
+    expect(() =>
+      applyAction(noFifties, 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 2 } }),
+    ).toThrow(/banca no té/);
+  });
+
+  it('amb un altre jugador, que l’ha d’acceptar', () => {
+    let s = applyAction(startedGame(), 'anna', { type: 'propose-exchange', to: 'pere', give: { 100: 1 }, receive: { 20: 5 } });
+    const offer = s.exchangeOffers[0]!;
+    expect(() => applyAction(s, 'marti', { type: 'respond-exchange', offerId: offer.id, accept: true })).toThrow(/no és per a tu/);
+    s = applyAction(s, 'pere', { type: 'respond-exchange', offerId: offer.id, accept: true });
+    expect(s.wallets.anna).toMatchObject({ 100: 1, 20: 11 });
+    expect(s.wallets.pere).toMatchObject({ 100: 3, 20: 1 });
+    expect(s.exchangeOffers[0]!.status).toBe('accepted');
+  });
+
+  it('si l’altre jugador no té els bitllets, no es fa', () => {
+    const s = applyAction(startedGame(), 'anna', { type: 'propose-exchange', to: 'pere', give: { 500: 1 }, receive: { 100: 5 } });
+    expect(() => applyAction(s, 'pere', { type: 'respond-exchange', offerId: s.exchangeOffers[0]!.id, accept: true })).toThrow(
+      /altre jugador no té/,
+    );
   });
 });
 
 describe('bitllets comptats de la banca', () => {
   it('els diners totals de la partida no canvien', () => {
-    let s = startedGame();
-    s = run(s, [
+    const s = run(startedGame(), [
       ['anna', { type: 'pass-go' }],
-      ['anna', { type: 'pay', to: 'pere', amount: 37, reason: 'x' }],
-      ['marti', { type: 'request', kind: 'buy', square: 39 }],
+      ['anna', { type: 'pay', to: 'pere', amount: 37, reason: 'x', bills: { 20: 1, 10: 1, 5: 1, 1: 2 } }],
+      ['marti', { type: 'request', kind: 'buy', square: ESGLESIA, bills: { 100: 2, 50: 2, 20: 5 } }],
       ['pere', { type: 'exchange-bills', give: { 500: 1 }, receive: { 100: 5 } }],
     ]);
-    const total = ['anna', 'marti', 'pere'].reduce((n, p) => n + balanceOf(s, p), 0);
-    const bankTotal = Object.entries(s.bank).reduce((n, [d, c]) => n + Number(d) * c, 0);
-    expect(total + bankTotal).toBe(20580);
-  });
-
-  it('no es pot demanar a la banca un bitllet que no té', () => {
-    let s = startedGame();
-    s = { ...s, bank: { ...s.bank, 50: 0 } };
-    expect(() => applyAction(s, 'anna', { type: 'exchange-bills', give: { 100: 1 }, receive: { 50: 2 } })).toThrow(
-      /banca no té/,
-    );
+    expect(moneyInGame(s)).toBe(20580);
   });
 });
